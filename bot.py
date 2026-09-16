@@ -9,7 +9,6 @@ Database: nebulahost.db
 
 import os
 import sys
-import ast
 import time
 import html
 import zipfile
@@ -273,7 +272,7 @@ def parse_iso_date(date_str: Optional[str]) -> Optional[datetime]:
     return None
 
 def get_user_plan_info(user_id: int):
-    """Reliably verifies active plan status, remaining hours/days, and slot quota."""
+    """Reliably calculates plan duration and enforces bot quota."""
     with get_db() as conn:
         user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         if not user:
@@ -298,19 +297,17 @@ def get_user_plan_info(user_id: int):
         expiry_dt = parse_iso_date(plan_expiry)
 
         if expiry_dt is None:
-            # Fallback safe: do not prematurely delete user plan
             return {
                 "plan_name": "Active Plan",
                 "max_bots": 1,
                 "current_bots": current_bots,
                 "is_active": True,
-                "remaining_str": "Active (Verification sync)",
+                "remaining_str": "Active",
                 "expiry": plan_expiry,
                 "plan_id": plan_id
             }
 
         if now >= expiry_dt:
-            # Plan truly expired
             conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
             bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (user_id,)).fetchall()
             for (b_id,) in bots:
@@ -337,7 +334,7 @@ def get_user_plan_info(user_id: int):
             max_bots = int(get_setting("trial_max_bots") or "1")
         else:
             p = conn.execute("SELECT name, max_bots FROM plans WHERE id=?", (plan_id,)).fetchone()
-            plan_name = p[0] if p else "Standard Custom Plan"
+            plan_name = p[0] if p else "Active Plan"
             max_bots = p[1] if p else 1
 
         return {
@@ -349,72 +346,6 @@ def get_user_plan_info(user_id: int):
             "expiry": plan_expiry,
             "plan_id": plan_id
         }
-
-# ─── AUTOMATIC PIP DEPENDENCY SCANNER ──────────────────────────────────────
-STDLIB_MODULES: Set[str] = set(sys.builtin_module_names) | {
-    "os", "sys", "time", "json", "math", "re", "random", "datetime", "asyncio",
-    "subprocess", "sqlite3", "html", "shutil", "logging", "typing", "pathlib",
-    "urllib", "hashlib", "socket", "threading", "copy", "collections", "itertools",
-    "functools", "traceback", "inspect", "string", "struct", "pickle", "base64",
-    "io", "tempfile", "glob", "shlex", "queue", "signal", "platform", "uuid",
-    "csv", "xml", "email", "http", "unittest", "contextlib", "ctypes", "zipfile"
-}
-
-PIP_PACKAGE_MAP = {
-    "telebot": "pyTelegramBotAPI",
-    "telegram": "python-telegram-bot",
-    "bs4": "beautifulsoup4",
-    "PIL": "Pillow",
-    "cv2": "opencv-python",
-    "dotenv": "python-dotenv",
-    "yaml": "PyYAML",
-    "fitz": "PyMuPDF",
-    "psutil": "psutil",
-    "aiohttp": "aiohttp",
-    "requests": "requests",
-    "pyrogram": "pyrogram",
-    "tgcrypto": "tgcrypto"
-}
-
-def auto_detect_and_install_deps(py_file_path: str, bot_dir: str) -> str:
-    """Detects imports from Python code and installs missing packages."""
-    found_modules = set()
-    try:
-        with open(py_file_path, "r", encoding="utf-8", errors="ignore") as f:
-            tree = ast.parse(f.read(), filename=py_file_path)
-            
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    top_name = alias.name.split('.')[0]
-                    found_modules.add(top_name)
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    top_name = node.module.split('.')[0]
-                    found_modules.add(top_name)
-    except Exception as e:
-        logging.warning(f"AST parsing notice: {e}")
-
-    third_party = [m for m in found_modules if m and m not in STDLIB_MODULES]
-    if not third_party:
-        return "No third-party packages required"
-
-    packages_to_install = [PIP_PACKAGE_MAP.get(mod, mod) for mod in third_party]
-    req_path = os.path.join(bot_dir, "requirements.txt")
-    with open(req_path, "w", encoding="utf-8") as rf:
-        rf.write("\n".join(packages_to_install))
-
-    proc = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", req_path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=180
-    )
-    if proc.returncode == 0:
-        return f"✅ Auto-Installed ({', '.join(packages_to_install)})"
-    else:
-        err_out = proc.stderr.decode('utf-8', errors='ignore')[:250]
-        return f"⚠️ Warning during install:\n<code>{html.escape(err_out)}</code>"
 
 # ─── PROCESS SUPERVISOR HELPER FUNCTIONS ───────────────────────────────────
 def kill_process_tree(proc: subprocess.Popen):
@@ -434,7 +365,7 @@ def kill_process_tree(proc: subprocess.Popen):
             pass
 
 def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tuple[bool, str]:
-    """Starts the bot subprocess and verifies initial execution health."""
+    """Starts the bot subprocess and verifies execution health."""
     log_file = os.path.join(folder, "output.log")
     
     if bot_id in ACTIVE_PROCESSES:
@@ -448,9 +379,9 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
         proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
         ACTIVE_PROCESSES[bot_id] = proc
     except Exception as e:
-        return False, f"Failed to execute command: {str(e)}"
+        return False, f"Execution failed: {str(e)}"
 
-    # Wait 1.5s to check if it immediately crashes
+    # Wait 1.5s to detect crash on launch
     time.sleep(1.5)
     poll_res = proc.poll()
     if poll_res is not None:
@@ -565,7 +496,7 @@ async def check_all_fsub(user_id: int) -> bool:
             if member.status in ["left", "kicked"]:
                 return False
         except Exception as e:
-            logging.error(f"FSUB verification failed for {chat_id}: {e}")
+            logging.error(f"FSUB verification error for {chat_id}: {e}")
             return False
     return True
 
@@ -1035,11 +966,11 @@ async def admin_reject_deposit(callback: types.CallbackQuery):
 
 # ─── ANIMATED PROGRESS BAR LOADER ──────────────────────────────────────────
 async def run_progress_loader(msg: types.Message, title: str):
-    """Shows animated progress bar loader from 20% to 100%."""
+    """Shows visual progress bar loader from 20% to 100%."""
     stages = [
         ("■■□□□□□□□□ 20%", "Allocating container environment..."),
-        ("■■■■□□□□□□ 40%", "Scanning script & parsing requirements..."),
-        ("■■■■■■□□□□ 60%", "Installing packages via PIP package manager..."),
+        ("■■■■□□□□□□ 40%", "Parsing requirements.txt packages..."),
+        ("■■■■■■□□□□ 60%", "Installing libraries via PIP package manager..."),
         ("■■■■■■■■□□ 80%", "Verifying execution syntax integrity..."),
         ("■■■■■■■■■■ 100%", "Executing container subprocess...")
     ]
@@ -1052,11 +983,11 @@ async def run_progress_loader(msg: types.Message, title: str):
                 f"<i>{desc}</i>",
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.6)
+            await asyncio.sleep(0.5)
         except Exception:
             pass
 
-# ─── UPLOAD & BOT HOSTING ENGINE (2-STEP UPLOAD + ANYTIME UPLOAD) ──────────
+# ─── UPLOAD & BOT HOSTING ENGINE (TRUE 2-STEP SYSTEM) ─────────────────────
 @dp.message(F.text.contains("Deploy Bot"))
 async def upload_prompt(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -1081,27 +1012,25 @@ async def upload_prompt(message: types.Message, state: FSMContext):
         )
 
     await message.answer(
-        f"{CE('up')} <b>STEP 1: SEND PYTHON FILE (.PY)</b>\n"
+        f"{CE('up')} <b>STEP 1: SEND PYTHON SCRIPT (.PY)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Active Tier: <code>{plan_info['plan_name']}</code> ({plan_info['current_bots']}/{plan_info['max_bots']} Slots Used)\n\n"
-        f"Please send your primary source file document:\n"
-        f"• <b>Python Code:</b> <code>.py</code>\n"
-        f"• <b>Or Project Archive:</b> <code>.zip</code> / <code>.js</code>\n\n"
-        f"{CE('loading')} <i>Awaiting file document...</i>",
+        f"Please send your python source file document (<code>.py</code>).\n"
+        f"<i>(ZIP project files with main.py are also accepted)</i>\n\n"
+        f"{CE('loading')} <i>Awaiting script document...</i>",
         reply_markup=cancel_btn(),
         parse_mode="HTML"
     )
     await state.set_state(UserStates.uploading_bot)
 
-# STEP 1: Process First Document (Accepts from State or Direct Upload anytime)
+# STEP 1: Process Python/ZIP Document
 @dp.message(F.document)
 async def process_file_upload(message: types.Message, state: FSMContext):
-    # Check if user is in another specific text state (like deposit amounts)
     curr_state = await state.get_state()
     if curr_state in [UserStates.deposit_amount.state, UserStates.deposit_trx.state]:
         return
 
-    # Check Requirements File Upload (Step 2)
+    # If user is in Step 2 (waiting for requirements.txt)
     if curr_state == UserStates.waiting_for_requirements.state:
         return await handle_requirements_file(message, state)
 
@@ -1109,7 +1038,6 @@ async def process_file_upload(message: types.Message, state: FSMContext):
     get_or_create_user(user_id, message.from_user.username or "N/A")
     plan_info = get_user_plan_info(user_id)
 
-    # Validate active plan quota
     if not plan_info or not plan_info["is_active"]:
         return await message.answer(
             f"{CE('notice')} <b>No Active Plan!</b> Please activate a plan via <b>Plans</b> before uploading files.",
@@ -1117,7 +1045,7 @@ async def process_file_upload(message: types.Message, state: FSMContext):
         )
     if plan_info["current_bots"] >= plan_info["max_bots"]:
         return await message.answer(
-            f"{CE('close')} <b>Container Quota Full!</b> ({plan_info['current_bots']}/{plan_info['max_bots']} used). Upgrade your plan or remove old bots.",
+            f"{CE('close')} <b>Container Quota Full!</b> ({plan_info['current_bots']}/{plan_info['max_bots']} used). Upgrade your plan or delete old bots.",
             parse_mode="HTML"
         )
 
@@ -1132,7 +1060,7 @@ async def process_file_upload(message: types.Message, state: FSMContext):
             parse_mode="HTML"
         )
 
-    status_msg = await message.answer(f"{CE('loading')} <i>Downloading & Allocating isolated container...</i>", parse_mode="HTML")
+    status_msg = await message.answer(f"{CE('loading')} <i>Step 1/2: Downloading & Analyzing source script...</i>", parse_mode="HTML")
     timestamp = int(time.time())
     bot_dir = os.path.join(BOT_STORAGE_DIR, f"{user_id}_{timestamp}")
     os.makedirs(bot_dir, exist_ok=True)
@@ -1141,9 +1069,9 @@ async def process_file_upload(message: types.Message, state: FSMContext):
     file_info = await bot.get_file(doc.file_id)
     await bot.download_file(file_info.file_path, destination=file_path)
 
-    # Case A: ZIP archive provided
+    # If ZIP file is provided
     if ext == ".zip":
-        await status_msg.edit_text(f"{CE('loading')} <i>Unpacking ZIP archive and detecting configuration...</i>", parse_mode="HTML")
+        await status_msg.edit_text(f"{CE('loading')} <i>Unpacking ZIP archive and detecting structure...</i>", parse_mode="HTML")
         try:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(bot_dir)
@@ -1173,7 +1101,6 @@ async def process_file_upload(message: types.Message, state: FSMContext):
                 shutil.rmtree(bot_dir, ignore_errors=True)
                 return await status_msg.edit_text(f"{CE('close')} <b>No main.py or bot.py found in zip!</b>", parse_mode="HTML")
 
-        # Launch directly with progress loader
         await finalize_and_launch_bot(
             user_id=user_id,
             bot_name=filename,
@@ -1181,12 +1108,11 @@ async def process_file_upload(message: types.Message, state: FSMContext):
             bot_dir=bot_dir,
             entry_file=entry_file,
             status_msg=status_msg,
-            state=state,
-            has_req_txt=os.path.exists(os.path.join(bot_dir, "requirements.txt"))
+            state=state
         )
         return
 
-    # Case B: Single .JS file
+    # If single .JS file
     elif ext == ".js":
         await finalize_and_launch_bot(
             user_id=user_id,
@@ -1195,13 +1121,18 @@ async def process_file_upload(message: types.Message, state: FSMContext):
             bot_dir=bot_dir,
             entry_file=filename,
             status_msg=status_msg,
-            state=state,
-            has_req_txt=False
+            state=state
         )
         return
 
-    # Case C: Single .PY file -> PROMPT STEP 2: Ask for requirements.txt
+    # If single .PY file: PRE-FLIGHT CHECK THEN REQUEST REQUIREMENTS.TXT (STEP 2)
     elif ext == ".py":
+        # Check syntax
+        compile_check = subprocess.run([sys.executable, "-m", "py_compile", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        syntax_status = "Passed (Clean Syntax)" if compile_check.returncode == 0 else "Warning: Syntax check noticed potential errors"
+
+        file_size_kb = round(doc.file_size / 1024, 2)
+
         await state.update_data(
             bot_dir=bot_dir,
             filename=filename,
@@ -1210,20 +1141,18 @@ async def process_file_upload(message: types.Message, state: FSMContext):
         )
         await state.set_state(UserStates.waiting_for_requirements)
 
-        req_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [ikb("⚡ Skip / Auto-Detect Requirements", callback_data="skip_req_upload", style="success", icon_id=EMOJIS["done"])],
-            [ikb("Cancel", callback_data="cancel_action", style="danger", icon_id=EMOJIS["close"])]
-        ])
-
-        await status_msg.edit_text(
-            f"{CE('done')} <b>Step 1/2 Complete:</b> <code>{filename}</code> received!\n\n"
-            f"{CE('up')} <b>STEP 2: SEND REQUIREMENTS.TXT</b>\n"
+        step2_text = (
+            f"{CE('done')} <b>STEP 1 VERIFIED: SCRIPT RECEIVED!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Please send your <b>requirements.txt</b> file now.\n\n"
-            f"<i>Don't have one? Tap 'Auto-Detect' below to let the server scan all imports automatically!</i>",
-            reply_markup=req_keyboard,
-            parse_mode="HTML"
+            f"{CE('link')} <b>File Name:</b> <code>{filename}</code>\n"
+            f"{CE('world')} <b>Size:</b> <code>{file_size_kb} KB</code>\n"
+            f"{CE('speed')} <b>Syntax Check:</b> <code>{syntax_status}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{CE('up')} <b>STEP 2: UPLOAD YOUR REQUIREMENTS.TXT</b>\n\n"
+            f"Please now send your <b>requirements.txt</b> file.\n"
+            f"<i>(Write your package dependencies in a .txt file, e.g. requests, telebot, etc., and send it here)</i>"
         )
+        await status_msg.edit_text(step2_text, reply_markup=cancel_btn(), parse_mode="HTML")
 
 # STEP 2: Handle requirements.txt upload
 async def handle_requirements_file(message: types.Message, state: FSMContext):
@@ -1236,7 +1165,7 @@ async def handle_requirements_file(message: types.Message, state: FSMContext):
         await state.clear()
         return await message.answer(f"{CE('close')} Session expired. Please re-upload your .py file.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
 
-    status_msg = await message.answer(f"{CE('loading')} <i>Receiving requirements.txt...</i>", parse_mode="HTML")
+    status_msg = await message.answer(f"{CE('loading')} <i>Step 2/2: Receiving requirements.txt file...</i>", parse_mode="HTML")
     req_file_path = os.path.join(bot_dir, "requirements.txt")
     file_info = await bot.get_file(doc.file_id)
     await bot.download_file(file_info.file_path, destination=req_file_path)
@@ -1248,30 +1177,7 @@ async def handle_requirements_file(message: types.Message, state: FSMContext):
         bot_dir=bot_dir,
         entry_file=filename,
         status_msg=status_msg,
-        state=state,
-        has_req_txt=True
-    )
-
-# STEP 2: Skip / Auto-Detect Requirements Callback
-@dp.callback_query(F.data == "skip_req_upload")
-async def skip_requirements_callback(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    bot_dir = data.get("bot_dir")
-    filename = data.get("filename")
-
-    if not bot_dir or not os.path.exists(bot_dir):
-        await state.clear()
-        return await callback.answer("Session expired. Please re-upload your .py file.", show_alert=True)
-
-    await finalize_and_launch_bot(
-        user_id=callback.from_user.id,
-        bot_name=filename,
-        bot_type="python",
-        bot_dir=bot_dir,
-        entry_file=filename,
-        status_msg=callback.message,
-        state=state,
-        has_req_txt=False
+        state=state
     )
 
 # Core Deploy & Run Engine
@@ -1282,19 +1188,18 @@ async def finalize_and_launch_bot(
     bot_dir: str,
     entry_file: str,
     status_msg: types.Message,
-    state: FSMContext,
-    has_req_txt: bool
+    state: FSMContext
 ):
     await state.clear()
 
     # Animated Progress Loader
-    await run_progress_loader(status_msg, f"DEPLOYING #{bot_name}")
+    await run_progress_loader(status_msg, f"DEPLOYING CONTAINER #{bot_name}")
 
     # Install Requirements
     pip_note = "Standard Runtime"
     req_file = os.path.join(bot_dir, "requirements.txt")
 
-    if has_req_txt and os.path.exists(req_file):
+    if os.path.exists(req_file):
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "-r", req_file],
@@ -1303,24 +1208,12 @@ async def finalize_and_launch_bot(
                 timeout=180
             )
             if proc.returncode == 0:
-                pip_note = "✅ Installed from requirements.txt"
+                pip_note = "✅ Installed successfully from requirements.txt"
             else:
                 err_log = proc.stderr.decode('utf-8', errors='ignore')[:250]
                 pip_note = f"⚠️ Install Warning:\n<code>{html.escape(err_log)}</code>"
         except Exception as e:
-            pip_note = f"⚠️ Pip notice: {str(e)}"
-    elif bot_type == "python":
-        # Auto-detect dependencies
-        py_full = os.path.join(bot_dir, entry_file)
-        pip_note = auto_detect_and_install_deps(py_full, bot_dir)
-
-    # Pre-flight compile check
-    syntax_note = "Passed"
-    if bot_type == "python":
-        py_full = os.path.join(bot_dir, entry_file)
-        compile_check = subprocess.run([sys.executable, "-m", "py_compile", py_full], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if compile_check.returncode != 0:
-            syntax_note = f"Syntax Warning: {compile_check.stderr.decode('utf-8', errors='ignore')[:200]}"
+            pip_note = f"⚠️ Pip Notice: {str(e)}"
 
     # Save to Database
     with get_db() as conn:
@@ -1337,15 +1230,15 @@ async def finalize_and_launch_bot(
 
     if success:
         success_card = (
-            f"{CE('done')} <b>INSTANCE LAUNCHED ONLINE!</b> {CE('fire')}\n"
+            f"{CE('done')} <b>INSTANCE DEPLOYED & LIVE!</b> {CE('fire')}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"{CE('link')} <b>Bot Instance:</b> <code>#{bot_id}</code>\n"
             f"{CE('arrow_right')} <b>Primary File:</b> <code>{entry_file}</code>\n"
             f"{CE('power')} <b>Runtime:</b> <code>{bot_type.upper()}</code>\n"
-            f"{CE('speed')} <b>Status:</b> 🟢 <b>LIVE & RUNNING</b>\n"
+            f"{CE('speed')} <b>Status:</b> 🟢 <b>ONLINE & RUNNING</b>\n"
             f"{CE('diamond')} <b>Dependencies:</b> {pip_note}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎉 <i>Your bot process is running 24/7. Manage anytime via <b>My Bots</b>.</i>"
+            f"🎉 <i>Your bot is running 24/7. Control anytime via <b>My Bots</b>.</i>"
         )
         await status_msg.edit_text(success_card, parse_mode="HTML")
     else:
@@ -1382,13 +1275,20 @@ async def my_bots_list(message: types.Message):
     await message.answer(f"{CE('trader')} <b>SELECT CONTAINER INSTANCE:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("managebot_"))
-async def bot_controls(callback: types.CallbackQuery):
-    bot_id = int(callback.data.split("_")[1])
+async def bot_controls(callback: types.CallbackQuery, target_bot_id: int = None):
+    if target_bot_id is not None:
+        bot_id = target_bot_id
+    else:
+        try:
+            bot_id = int(callback.data.split("_")[-1])
+        except Exception:
+            return await callback.answer("Instance ID parse error!", show_alert=True)
+
     with get_db() as conn:
         b = conn.execute("SELECT * FROM bots WHERE bot_id=?", (bot_id,)).fetchone()
         
     if not b:
-        return await callback.answer("Instance not located!", show_alert=True)
+        return await callback.answer("Instance record not found!", show_alert=True)
 
     is_running = b[6] == "running" and bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None
     status_icon = f"{CE('done')} LIVE (Running)" if is_running else f"{CE('close')} STOPPED"
@@ -1428,7 +1328,10 @@ async def bot_controls(callback: types.CallbackQuery):
             ikb("Back", callback_data="back_mybots", style="primary", icon_id=EMOJIS["arrow_right"])
         ]
     ])
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
 
 @dp.callback_query(F.data == "back_mybots")
 async def back_to_bots(callback: types.CallbackQuery):
@@ -1437,8 +1340,9 @@ async def back_to_bots(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("actbot_"))
 async def execute_bot_action(callback: types.CallbackQuery):
-    action, bot_id_str = callback.data.split("_")[1], callback.data.split("_")[2]
-    bot_id = int(bot_id_str)
+    parts = callback.data.split("_")
+    action = parts[1]
+    bot_id = int(parts[2])
     
     with get_db() as conn:
         bot_row = conn.execute("SELECT * FROM bots WHERE bot_id=?", (bot_id,)).fetchone()
@@ -1533,7 +1437,8 @@ async def execute_bot_action(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
 
-    await bot_controls(callback)
+    # Refresh card properly without losing instance record!
+    await bot_controls(callback, target_bot_id=bot_id)
 
 # ─── ADMIN PANEL & COMPREHENSIVE PLAN MANAGER ──────────────────────────────
 @dp.message(F.text.contains("Admin Panel"))
@@ -2124,7 +2029,7 @@ async def main():
     print(" Primary Admin ID: 2014144404 ")
     print(" Database: nebulahost.db ")
     print(" Support: @YourDomains ")
-    print(" 2-Step File Deployment: Active ")
+    print(" 2-Step Strict Requirements Deployment: Active ")
     print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
     print("==============================================")
     asyncio.create_task(background_scheduler())
