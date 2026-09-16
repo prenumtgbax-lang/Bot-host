@@ -9,7 +9,7 @@ import sqlite3
 import logging
 import subprocess
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Dict, Tuple
 
 import psutil
 from aiogram import Bot, Dispatcher, F, types
@@ -109,11 +109,12 @@ def CE(key: str, fallback: str = "✨") -> str:
 BOT_TOKEN = "8675366388:AAHOUv_JzvBTiWCSyieozvl7-CQ9cABhpOI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "babyhostss.db"# নতুন ডাটাবেজ নাম
+DB_FILE = "babyhost.db"
 
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 
+# Process container cache: bot_id -> subprocess.Popen
 ACTIVE_PROCESSES: Dict[int, subprocess.Popen] = {}
 
 bot = Bot(token=BOT_TOKEN)
@@ -203,7 +204,7 @@ def init_db():
         )
     ''')
 
-    # Seed Default Settings
+    # Default Settings
     default_settings = {
         "fsub_enabled": "1",
         "bkash_number": "017XXXXXXXX",
@@ -260,7 +261,6 @@ def get_or_create_user(user_id: int, username: str = "N/A"):
         return user
 
 def get_user_plan_info(user_id: int):
-    """Accurately computes real-time plan status, remaining days/hours, and bot slots."""
     with get_db() as conn:
         user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         if not user:
@@ -287,7 +287,6 @@ def get_user_plan_info(user_id: int):
         except Exception:
             expiry_dt = now
 
-        # Auto expire if past time
         if now >= expiry_dt:
             conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
             conn.commit()
@@ -324,6 +323,73 @@ def get_user_plan_info(user_id: int):
             "expiry": plan_expiry,
             "plan_id": plan_id
         }
+
+# ─── PROCESS SUPERVISOR HELPER FUNCTIONS ───────────────────────────────────
+def kill_process_tree(proc: subprocess.Popen):
+    """Safely kills the process and all of its spawned children."""
+    try:
+        parent = psutil.Process(proc.pid)
+        for child in parent.children(recursive=True):
+            try:
+                child.terminate()
+            except Exception:
+                pass
+        parent.terminate()
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tuple[bool, str]:
+    """Starts the bot subprocess and verifies initial execution health."""
+    log_file = os.path.join(folder, "output.log")
+    
+    # Kill any existing instance
+    if bot_id in ACTIVE_PROCESSES:
+        kill_process_tree(ACTIVE_PROCESSES[bot_id])
+        del ACTIVE_PROCESSES[bot_id]
+
+    cmd = [sys.executable, entry] if btype == "python" else ["node", entry]
+    
+    try:
+        log_fp = open(log_file, "a", encoding="utf-8")
+        proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
+        ACTIVE_PROCESSES[bot_id] = proc
+    except Exception as e:
+        return False, f"Failed to execute command: {str(e)}"
+
+    # Brief health check (wait 1.2s to detect crash on launch)
+    time.sleep(1.2)
+    poll_res = proc.poll()
+    if poll_res is not None:
+        del ACTIVE_PROCESSES[bot_id]
+        with get_db() as conn:
+            conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (bot_id,))
+            conn.commit()
+        # Read latest error from log
+        try:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                tail = "".join(f.readlines()[-15:])
+        except Exception:
+            tail = "Check output log file."
+        return False, f"Process crashed immediately on launch (Exit code: {poll_res}):\n{tail}"
+
+    with get_db() as conn:
+        conn.execute("UPDATE bots SET status='running' WHERE bot_id=?", (bot_id,))
+        conn.commit()
+
+    return True, "Bot instance is running smoothly."
+
+def stop_bot_instance(bot_id: int):
+    """Gracefully terminates a bot instance and marks it stopped."""
+    if bot_id in ACTIVE_PROCESSES:
+        kill_process_tree(ACTIVE_PROCESSES[bot_id])
+        del ACTIVE_PROCESSES[bot_id]
+        
+    with get_db() as conn:
+        conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (bot_id,))
+        conn.commit()
 
 # ─── FSM STATES ─────────────────────────────────────────────────────────────
 class UserStates(StatesGroup):
@@ -368,7 +434,7 @@ def cancel_btn():
     )
 
 async def check_menu_button_escape(message: types.Message, state: FSMContext) -> bool:
-    """If a user clicks a menu button while inside a text state, clear state and open that menu."""
+    """If user clicks any reply keyboard button while inside a state, clear state and open that menu."""
     text = message.text or ""
     if text.startswith("/start"):
         await state.clear()
@@ -685,7 +751,7 @@ async def process_buy_plan(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-# ─── DEPOSIT & PAYMENT SYSTEM (STEP-BY-STEP PROOF WITH BUTTON ESCAPE) ───────
+# ─── DEPOSIT & PAYMENT SYSTEM (WITH NAVIGATION ESCAPE) ─────────────────────
 @dp.callback_query(F.data == "start_deposit")
 async def deposit_methods_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -729,7 +795,6 @@ async def method_chosen(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(UserStates.deposit_amount)
 async def process_deposit_amount(message: types.Message, state: FSMContext):
-    # মেনু বাটনে ক্লিক করলে স্টেট ক্লিয়ার হয়ে মেনুতে চলে যাবে
     if await check_menu_button_escape(message, state):
         return
 
@@ -755,7 +820,6 @@ async def process_deposit_amount(message: types.Message, state: FSMContext):
 
 @dp.message(UserStates.deposit_trx)
 async def process_deposit_trx(message: types.Message, state: FSMContext):
-    # মেনু বাটনে ক্লিক করলে স্টেট ক্লিয়ার হয়ে মেনুতে চলে যাবে
     if await check_menu_button_escape(message, state):
         return
 
@@ -917,7 +981,7 @@ async def upload_prompt(message: types.Message, state: FSMContext):
 @dp.message(UserStates.uploading_bot, F.document)
 async def process_file_upload(message: types.Message, state: FSMContext):
     doc = message.document
-    filename = doc.file_name
+    filename = doc.file_name or "archive.zip"
     ext = os.path.splitext(filename)[1].lower()
     user_id = message.from_user.id
     
@@ -929,7 +993,7 @@ async def process_file_upload(message: types.Message, state: FSMContext):
             parse_mode="HTML"
         )
         
-    status_msg = await message.answer(f"{CE('loading')} <i>Allocating isolated process sandbox...</i>", parse_mode="HTML")
+    status_msg = await message.answer(f"{CE('loading')} <i>Step 1/4: Downloading & Allocating isolated container...</i>", parse_mode="HTML")
     
     timestamp = int(time.time())
     bot_dir = os.path.join(BOT_STORAGE_DIR, f"{user_id}_{timestamp}")
@@ -942,15 +1006,16 @@ async def process_file_upload(message: types.Message, state: FSMContext):
     entry_file = filename
     bot_type = "python" if ext == ".py" else ("nodejs" if ext == ".js" else "unknown")
     
-    # ZIP Extraction
+    # ── Step 2: Extraction & Verification ──
     if ext == ".zip":
-        await status_msg.edit_text(f"{CE('loading')} <i>Extracting project files from archive...</i>", parse_mode="HTML")
+        await status_msg.edit_text(f"{CE('loading')} <i>Step 2/4: Unpacking ZIP and validating structure...</i>", parse_mode="HTML")
         try:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(bot_dir)
             os.remove(file_path)
         except Exception as e:
-            return await status_msg.edit_text(f"{CE('close')} <b>Archive Extraction Failed:</b> <code>{str(e)}</code>", parse_mode="HTML")
+            shutil.rmtree(bot_dir, ignore_errors=True)
+            return await status_msg.edit_text(f"{CE('close')} <b>Archive Extraction Failed!</b>\nError: <code>{html.escape(str(e))}</code>", parse_mode="HTML")
             
         files = os.listdir(bot_dir)
         if "main.py" in files:
@@ -971,20 +1036,37 @@ async def process_file_upload(message: types.Message, state: FSMContext):
                 entry_file = py_files[0]
                 bot_type = "python"
             else:
+                shutil.rmtree(bot_dir, ignore_errors=True)
                 return await status_msg.edit_text(
-                    f"{CE('close')} <b>No Entry Point Found!</b> Ensure your zip contains <code>main.py</code> or <code>index.js</code>.",
+                    f"{CE('close')} <b>No Valid Entrypoint Located!</b>\n"
+                    f"Your zip archive must contain <code>main.py</code>, <code>bot.py</code>, or <code>index.js</code>.",
                     parse_mode="HTML"
                 )
 
-    # Dependencies installation
+    # ── Step 3: Dependencies Resolution ──
     req_file = os.path.join(bot_dir, "requirements.txt")
+    pip_status_note = "None (No requirements.txt found)"
     if os.path.exists(req_file):
-        await status_msg.edit_text(f"{CE('loading')} <i>Resolving & Installing requirements.txt packages...</i>", parse_mode="HTML")
+        await status_msg.edit_text(f"{CE('loading')} <i>Step 3/4: Resolving & Installing packages from requirements.txt...</i>", parse_mode="HTML")
         install_proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if install_proc.returncode != 0:
-            err_log = install_proc.stderr.decode('utf-8', errors='replace')[:300]
-            await message.answer(f"{CE('notice')} <b>Dependencies Installation Notice:</b>\n<code>{err_log}</code>", parse_mode="HTML")
+        if install_proc.returncode == 0:
+            pip_status_note = "✅ Installed Successfully"
+        else:
+            err_log = install_proc.stderr.decode('utf-8', errors='replace')[:250]
+            pip_status_note = f"⚠️ Warning during install:\n<code>{html.escape(err_log)}</code>"
 
+    # ── Step 4: Syntax Pre-flight Check ──
+    syntax_status_note = "N/A"
+    if bot_type == "python":
+        entry_full_path = os.path.join(bot_dir, entry_file)
+        compile_check = subprocess.run([sys.executable, "-m", "py_compile", entry_full_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if compile_check.returncode == 0:
+            syntax_status_note = "✅ Passed (No syntax errors detected)"
+        else:
+            err_text = compile_check.stderr.decode('utf-8', errors='replace')[:250]
+            syntax_status_note = f"⚠️ Syntax Warning:\n<code>{html.escape(err_text)}</code>"
+
+    # Save to Database
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -995,16 +1077,24 @@ async def process_file_upload(message: types.Message, state: FSMContext):
         bot_id = cur.lastrowid
         
     await state.clear()
-    await status_msg.edit_text(
-        f"{CE('done')} <b>Container Deployed Successfully!</b>\n\n"
+    
+    # Comprehensive Deployment Diagnostics Report
+    diagnostic_report = (
+        f"{CE('done')} <b>DEPLOYMENT COMPLETED & VERIFIED!</b> {CE('fire')}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{CE('link')} <b>Instance ID:</b> <code>#{bot_id}</code>\n"
-        f"{CE('arrow_right')} <b>Entrypoint:</b> <code>{entry_file}</code>\n"
-        f"{CE('power')} <b>Runtime:</b> <code>{bot_type.upper()}</code>\n\n"
-        f"Manage your bot process anytime via <b>My Bots</b>.",
-        parse_mode="HTML"
+        f"{CE('arrow_right')} <b>Primary File:</b> <code>{entry_file}</code>\n"
+        f"{CE('power')} <b>Runtime:</b> <code>{bot_type.upper()}</code>\n"
+        f"{CE('diamond')} <b>Dependencies:</b> {pip_status_note}\n"
+        f"{CE('speed')} <b>Pre-flight Check:</b> {syntax_status_note}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎉 <i>Your container is provisioned and ready to run!</i>\n"
+        f"Tap <b>My Bots</b> to launch and manage your instance."
     )
+    
+    await status_msg.edit_text(diagnostic_report, parse_mode="HTML")
 
-# ─── MY BOTS MANAGEMENT & CRASH-PROOF LOGS ─────────────────────────────────
+# ─── MY BOTS MANAGEMENT (FULL CONTROLS & MONITORING) ───────────────────────
 @dp.message(F.text.contains("My Bots"))
 async def my_bots_list(message: types.Message):
     user_id = message.from_user.id
@@ -1013,14 +1103,15 @@ async def my_bots_list(message: types.Message):
         
     if not bots:
         return await message.answer(
-            f"{CE('notice')} <b>No deployed instances found.</b> Use <b>Deploy Bot</b> to create one.",
+            f"{CE('notice')} <b>No deployed instances found.</b> Use <b>Deploy Bot</b> to upload one.",
             parse_mode="HTML"
         )
 
     buttons = []
     for b in bots:
-        icon_id = EMOJIS["done"] if b[2] == "running" else EMOJIS["close"]
-        status_text = "LIVE" if b[2] == "running" else "STOPPED"
+        is_running = b[2] == "running" and b[0] in ACTIVE_PROCESSES and ACTIVE_PROCESSES[b[0]].poll() is None
+        icon_id = EMOJIS["done"] if is_running else EMOJIS["close"]
+        status_text = "LIVE" if is_running else "STOPPED"
         buttons.append([ikb(f"[{status_text}] #{b[0]} - {b[1]}", callback_data=f"managebot_{b[0]}", style="primary", icon_id=icon_id)])
         
     await message.answer(f"{CE('trader')} <b>SELECT CONTAINER INSTANCE:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
@@ -1033,8 +1124,21 @@ async def bot_controls(callback: types.CallbackQuery):
         
     if not b:
         return await callback.answer("Instance not located!", show_alert=True)
-        
-    status_icon = f"{CE('done')} LIVE (Running)" if b[6] == "running" else f"{CE('close')} STOPPED"
+
+    is_running = b[6] == "running" and bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None
+    status_icon = f"{CE('done')} LIVE (Running)" if is_running else f"{CE('close')} STOPPED"
+    
+    # Live CPU / Memory measurement
+    res_usage_str = "Offline"
+    if is_running:
+        try:
+            p = psutil.Process(ACTIVE_PROCESSES[bot_id].pid)
+            mem_mb = round(p.memory_info().rss / (1024 * 1024), 2)
+            cpu_p = p.cpu_percent(interval=None)
+            res_usage_str = f"CPU: {cpu_p}% | RAM: {mem_mb} MB"
+        except Exception:
+            res_usage_str = "Measuring..."
+
     text = (
         f"{CE('diamond')} <b>BOT CONTAINER CONTROLLER #{b[0]}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1042,6 +1146,7 @@ async def bot_controls(callback: types.CallbackQuery):
         f"{CE('power')} <b>Runtime Engine:</b> <code>{b[3].upper()}</code>\n"
         f"{CE('arrow_right')} <b>Primary File:</b> <code>{b[5]}</code>\n"
         f"{CE('speed')} <b>Status:</b> {status_icon}\n"
+        f"{CE('boom')} <b>Resource Load:</b> <code>{res_usage_str}</code>\n"
         f"{CE('date')} <b>Deployed On:</b> <code>{b[7]}</code>"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1075,64 +1180,55 @@ async def execute_bot_action(callback: types.CallbackQuery):
         bot_row = conn.execute("SELECT * FROM bots WHERE bot_id=?", (bot_id,)).fetchone()
         
     if not bot_row:
-        return await callback.answer("Instance not found!", show_alert=True)
+        return await callback.answer("Instance record not found!", show_alert=True)
 
     folder, entry, btype = bot_row[4], bot_row[5], bot_row[3]
     log_file = os.path.join(folder, "output.log")
 
+    # START ACTION
     if action == "start":
         if bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None:
-            return await callback.answer("⚠️ Bot process is already active!", show_alert=True)
+            return await callback.answer("⚠️ Bot process is already active and running!", show_alert=True)
             
-        cmd = [sys.executable, entry] if btype == "python" else ["node", entry]
-        log_fp = open(log_file, "a", encoding="utf-8")
-        proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
-        ACTIVE_PROCESSES[bot_id] = proc
-        
-        with get_db() as conn:
-            conn.execute("UPDATE bots SET status='running' WHERE bot_id=?", (bot_id,))
-            conn.commit()
-            
-        await callback.answer("✅ Bot process started successfully!", show_alert=True)
+        success, msg = launch_bot_instance(bot_id, folder, entry, btype)
+        if success:
+            await callback.answer("✅ Bot process started successfully!", show_alert=True)
+        else:
+            return await callback.message.answer(
+                f"{CE('notice')} <b>Launch Failure Warning (#{bot_id})!</b>\n"
+                f"The bot process failed to stay alive:\n<pre>{html.escape(msg)}</pre>",
+                parse_mode="HTML"
+            )
 
+    # STOP ACTION
     elif action == "stop":
-        if bot_id in ACTIVE_PROCESSES:
-            proc = ACTIVE_PROCESSES[bot_id]
-            proc.terminate()
-            del ACTIVE_PROCESSES[bot_id]
-            
-        with get_db() as conn:
-            conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (bot_id,))
-            conn.commit()
-            
-        await callback.answer("🛑 Subprocess stopped!", show_alert=True)
+        stop_bot_instance(bot_id)
+        await callback.answer("🛑 Instance subprocess stopped!", show_alert=True)
 
+    # RESTART ACTION
     elif action == "restart":
-        if bot_id in ACTIVE_PROCESSES:
-            ACTIVE_PROCESSES[bot_id].terminate()
-            del ACTIVE_PROCESSES[bot_id]
-            
-        cmd = [sys.executable, entry] if btype == "python" else ["node", entry]
-        log_fp = open(log_file, "a", encoding="utf-8")
-        proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
-        ACTIVE_PROCESSES[bot_id] = proc
-        
-        with get_db() as conn:
-            conn.execute("UPDATE bots SET status='running' WHERE bot_id=?", (bot_id,))
-            conn.commit()
-            
-        await callback.answer("🔄 Instance rebooted!", show_alert=True)
+        stop_bot_instance(bot_id)
+        time.sleep(0.5)
+        success, msg = launch_bot_instance(bot_id, folder, entry, btype)
+        if success:
+            await callback.answer("🔄 Instance rebooted successfully!", show_alert=True)
+        else:
+            return await callback.message.answer(
+                f"{CE('notice')} <b>Reboot Failure Warning (#{bot_id})!</b>\n<pre>{html.escape(msg)}</pre>",
+                parse_mode="HTML"
+            )
 
+    # VIEW LOGS ACTION
     elif action == "logs":
         if not os.path.exists(log_file):
-            return await callback.answer("No output log has been generated yet.", show_alert=True)
+            return await callback.answer("No console log file generated yet.", show_alert=True)
             
         try:
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
-                tail = "".join(lines[-25:]) or "Output log is clean and empty."
+                tail = "".join(lines[-30:]) or "Output log file is clean and empty."
         except Exception as e:
-            tail = f"Error reading log file: {e}"
+            tail = f"Error reading log output: {e}"
 
         tail_escaped = html.escape(tail)
         return await callback.message.answer(
@@ -1140,8 +1236,9 @@ async def execute_bot_action(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
 
+    # BACKUP / DOWNLOAD SOURCE CODE
     elif action == "download":
-        await callback.answer("📦 Packing source archive...")
+        await callback.answer("📦 Packaging source archive...")
         zip_archive_path = os.path.join(BOT_STORAGE_DIR, f"backup_bot_{bot_id}")
         shutil.make_archive(zip_archive_path, 'zip', folder)
         full_zip = f"{zip_archive_path}.zip"
@@ -1155,10 +1252,9 @@ async def execute_bot_action(callback: types.CallbackQuery):
             os.remove(full_zip)
         return
 
+    # DELETE BOT INSTANCE
     elif action == "delete":
-        if bot_id in ACTIVE_PROCESSES:
-            ACTIVE_PROCESSES[bot_id].terminate()
-            del ACTIVE_PROCESSES[bot_id]
+        stop_bot_instance(bot_id)
             
         if os.path.exists(folder):
             shutil.rmtree(folder, ignore_errors=True)
@@ -1168,7 +1264,10 @@ async def execute_bot_action(callback: types.CallbackQuery):
             conn.commit()
             
         await callback.message.delete()
-        return await callback.message.answer(f"{CE('delete')} <b>Container instance #{bot_id} completely removed.</b>", parse_mode="HTML")
+        return await callback.message.answer(
+            f"{CE('delete')} <b>Container instance #{bot_id} completely removed from servers.</b>",
+            parse_mode="HTML"
+        )
 
     await bot_controls(callback)
 
@@ -1372,6 +1471,8 @@ async def adm_all_bots(callback: types.CallbackQuery):
     text = f"{CE('trader')} <b>GLOBAL INSTANCES (First 30)</b>:\n\n"
     buttons = []
     for b in bots:
+        is_running = b[0] in ACTIVE_PROCESSES and ACTIVE_PROCESSES[b[0]].poll() is None
+        st_icon = EMOJIS["done"] if is_running else EMOJIS["close"]
         text += f"• <code>#{b[0]}</code> | Owner: <code>{b[1]}</code> | {b[2]}\n"
         buttons.append([ikb(f"Backup #{b[0]} ({b[2]})", callback_data=f"adm_dl_{b[0]}", style="primary", icon_id=EMOJIS["download"])])
 
@@ -1708,10 +1809,7 @@ async def background_scheduler():
                     
                     bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (u_id,)).fetchall()
                     for (b_id,) in bots:
-                        if b_id in ACTIVE_PROCESSES:
-                            ACTIVE_PROCESSES[b_id].terminate()
-                            del ACTIVE_PROCESSES[b_id]
-                        conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (b_id,))
+                        stop_bot_instance(b_id)
                     conn.commit()
                     
                     try:
@@ -1746,6 +1844,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("\n[!] Shutting down all active child processes...")
-        for pid, proc in ACTIVE_PROCESSES.items():
-            proc.terminate()
+        for b_id in list(ACTIVE_PROCESSES.keys()):
+            stop_bot_instance(b_id)
         print("[+] Engine clean shutdown complete.")
