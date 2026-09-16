@@ -109,7 +109,7 @@ def CE(key: str, fallback: str = "✨") -> str:
 BOT_TOKEN = "8675366388:AAHOUv_JzvBTiWCSyieozvl7-CQ9cABhpOI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "babyhostss.db# নতুন ডাটাবেজ নাম
+DB_FILE = "babyhostss.db"# নতুন ডাটাবেজ নাম
 
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
