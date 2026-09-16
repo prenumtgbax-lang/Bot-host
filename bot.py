@@ -106,10 +106,10 @@ def CE(key: str, fallback: str = "✨") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
-BOT_TOKEN = "8675366388:AAHOUv_JzvBTiWCSyieozvl7-CQ9cABhpOI"
+BOT_TOKEN = "8996063667:AAH3J8omlagr0kgER8lR2NeE-KXKyqtoL5M"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "nebula_cloud_v4.db"  # নতুন ডাটাবেজ নাম
+DB_FILE = "babyhost.db"  # নতুন ডাটাবেজ নাম
 
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
@@ -347,7 +347,9 @@ class AdminStates(StatesGroup):
     edit_trial_bots = State()
     edit_trial_limit = State()
 
-# ─── KEYBOARDS ─────────────────────────────────────────────────────────────
+# ─── KEYBOARDS & NAVIGATION SHIELD ─────────────────────────────────────────
+MENU_BUTTON_TEXTS = ["Deploy Bot", "My Bots", "Plans", "Wallet & Balance", "Server Ping", "Support", "Admin Panel"]
+
 def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -364,6 +366,32 @@ def cancel_btn():
     return InlineKeyboardMarkup(
         inline_keyboard=[[ikb("Cancel Operation", callback_data="cancel_action", style="danger", icon_id=EMOJIS["close"])]]
     )
+
+async def check_menu_button_escape(message: types.Message, state: FSMContext) -> bool:
+    """If a user clicks a menu button while inside a text state, clear state and open that menu."""
+    text = message.text or ""
+    if text.startswith("/start"):
+        await state.clear()
+        await start_handler(message, state)
+        return True
+    if any(b in text for b in MENU_BUTTON_TEXTS):
+        await state.clear()
+        if "Deploy Bot" in text:
+            await upload_prompt(message, state)
+        elif "My Bots" in text:
+            await my_bots_list(message)
+        elif "Plans" in text:
+            await plans_handler(message)
+        elif "Wallet & Balance" in text:
+            await wallet_handler(message)
+        elif "Server Ping" in text:
+            await ping_handler(message)
+        elif "Support" in text:
+            await support_handler(message)
+        elif "Admin Panel" in text:
+            await admin_panel_root(message)
+        return True
+    return False
 
 # ─── FORCE SUBSCRIBE MIDDLEWARE CHECK ──────────────────────────────────────
 async def check_all_fsub(user_id: int) -> bool:
@@ -394,7 +422,10 @@ def get_fsub_keyboard():
 
 # ─── START COMMAND & PROFILE ───────────────────────────────────────────────
 @dp.message(CommandStart())
-async def start_handler(message: types.Message):
+async def start_handler(message: types.Message, state: FSMContext = None):
+    if state:
+        await state.clear()
+        
     user_id = message.from_user.id
     username = message.from_user.username or "N/A"
     
@@ -506,7 +537,7 @@ async def wallet_handler(message: types.Message):
         parse_mode="HTML"
     )
 
-# ─── PLANS & SUBSCRIPTIONS (ACCURATE REAL-TIME COUNT & VALIDITY) ───────────
+# ─── PLANS & SUBSCRIPTIONS (REAL-TIME EXPIRY & REMAINING TIME) ─────────────
 @dp.message(F.text.contains("Plans"))
 @dp.callback_query(F.data == "view_plans")
 async def plans_handler(event: types.Message | types.CallbackQuery):
@@ -522,7 +553,7 @@ async def plans_handler(event: types.Message | types.CallbackQuery):
     text = (
         f"{CE('diamond')} <b>CLOUD HOSTING SUBSCRIPTIONS</b> {CE('fire')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('crown')} <b>Your Active Tier:</b> <code>{plan_info['plan_name']}</code>\n"
+        f"{CE('crown')} <b>Active Tier:</b> <code>{plan_info['plan_name']}</code>\n"
         f"{CE('date')} <b>Remaining Validity:</b> <code>{plan_info['remaining_str']}</code>\n"
         f"{CE('power')} <b>Deployment Slots:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']} Used</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -654,7 +685,7 @@ async def process_buy_plan(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-# ─── DEPOSIT & PAYMENT SYSTEM (STEP-BY-STEP PROOF) ─────────────────────────
+# ─── DEPOSIT & PAYMENT SYSTEM (STEP-BY-STEP PROOF WITH BUTTON ESCAPE) ───────
 @dp.callback_query(F.data == "start_deposit")
 async def deposit_methods_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -698,12 +729,20 @@ async def method_chosen(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(UserStates.deposit_amount)
 async def process_deposit_amount(message: types.Message, state: FSMContext):
+    # মেনু বাটনে ক্লিক করলে স্টেট ক্লিয়ার হয়ে মেনুতে চলে যাবে
+    if await check_menu_button_escape(message, state):
+        return
+
     try:
         amount = float(message.text.strip())
         if amount <= 0:
             raise ValueError
     except ValueError:
-        return await message.answer(f"{CE('close')} <b>Invalid amount!</b> Please write numerical figures only.", reply_markup=cancel_btn(), parse_mode="HTML")
+        return await message.answer(
+            f"{CE('close')} <b>Invalid amount!</b> Please write numerical figures only (e.g. <code>100</code>).",
+            reply_markup=cancel_btn(),
+            parse_mode="HTML"
+        )
 
     await state.update_data(amount=amount)
     await message.answer(
@@ -716,6 +755,10 @@ async def process_deposit_amount(message: types.Message, state: FSMContext):
 
 @dp.message(UserStates.deposit_trx)
 async def process_deposit_trx(message: types.Message, state: FSMContext):
+    # মেনু বাটনে ক্লিক করলে স্টেট ক্লিয়ার হয়ে মেনুতে চলে যাবে
+    if await check_menu_button_escape(message, state):
+        return
+
     trx_id = message.text.strip()
     await state.update_data(trx_id=trx_id)
     await message.answer(
@@ -738,7 +781,6 @@ async def process_deposit_photo(message: types.Message, state: FSMContext):
     trx_id = data['trx_id']
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Save to deposit_requests table
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -1092,7 +1134,6 @@ async def execute_bot_action(callback: types.CallbackQuery):
         except Exception as e:
             tail = f"Error reading log file: {e}"
 
-        # HTML Escape to prevent crash when user bot outputs tags
         tail_escaped = html.escape(tail)
         return await callback.message.answer(
             f"{CE('logs')} <b>TERMINAL OUTPUT (#{bot_id}):</b>\n<pre>{tail_escaped}</pre>",
@@ -1403,7 +1444,7 @@ async def adm_scan_display(message: types.Message, state: FSMContext):
 async def adm_toggleban(callback: types.CallbackQuery):
     uid = int(callback.data.split("_")[2])
     with get_db() as conn:
-        cur_ban = conn.execute("SELECT is_banned FROM users WHERE user_id=?", (uid,)) .fetchone()[0]
+        cur_ban = conn.execute("SELECT is_banned FROM users WHERE user_id=?", (uid,)).fetchone()[0]
         new_ban = 0 if cur_ban == 1 else 1
         conn.execute("UPDATE users SET is_banned=? WHERE user_id=?", (new_ban, uid))
         conn.commit()
@@ -1460,9 +1501,9 @@ async def adm_manage_plans(callback: types.CallbackQuery, state: FSMContext):
     buttons = []
     for p in plans:
         text += f"• <b>{p[1]}</b> | <code>{p[2]:.2f} ৳</code> | {p[3]} Days | Max {p[4]} Bots\n"
-        buttons.append([ikb(f"🗑 Delete '{p[1]}'", callback_data=f"delplan_{p[0]}", style="danger", icon_id=EMOJIS["delete"])])
+        buttons.append([ikb(f"Delete '{p[1]}'", callback_data=f"delplan_{p[0]}", style="danger", icon_id=EMOJIS["delete"])])
 
-    buttons.append([ikb("➕ Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])])
+    buttons.append([ikb("Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])])
     buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])])
     
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
@@ -1692,9 +1733,9 @@ async def background_scheduler():
 # ─── APPLICATION RUNNER ───────────────────────────────────────────────────
 async def main():
     print("==============================================")
-    print(" NEBULA CLOUD HOST ENGINE - ONLINE ")
+    print(" NEBULA CLOUD HOST ENGINE - ACTIVE ")
     print(" Primary Admin ID: 2014144404")
-    print(" Database: nebula_cloud_v4.db ")
+    print(" Database: babyhost.db ")
     print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
     print("==============================================")
     asyncio.create_task(background_scheduler())
