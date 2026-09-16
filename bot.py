@@ -19,7 +19,7 @@ import sqlite3
 import logging
 import subprocess
 from datetime import datetime, timedelta
-from typing import Dict, Tuple, Set
+from typing import Dict, Tuple, Set, Optional
 
 import psutil
 from aiogram import Bot, Dispatcher, F, types
@@ -125,7 +125,6 @@ DB_FILE = "nebulahost.db"
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 
-# Process container cache: bot_id -> subprocess.Popen
 ACTIVE_PROCESSES: Dict[int, subprocess.Popen] = {}
 
 bot = Bot(token=BOT_TOKEN)
@@ -136,7 +135,6 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     
-    # Users Table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -150,7 +148,6 @@ def init_db():
         )
     ''')
     
-    # Bots Table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS bots (
             bot_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,7 +161,6 @@ def init_db():
         )
     ''')
     
-    # Plans Table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,7 +172,6 @@ def init_db():
         )
     ''')
     
-    # Force Channels Table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS force_channels (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,7 +181,6 @@ def init_db():
         )
     ''')
 
-    # Deposit Requests
     cur.execute('''
         CREATE TABLE IF NOT EXISTS deposit_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,7 +194,6 @@ def init_db():
         )
     ''')
     
-    # Settings
     cur.execute('''
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -208,14 +201,12 @@ def init_db():
         )
     ''')
     
-    # Admins
     cur.execute('''
         CREATE TABLE IF NOT EXISTS admins (
             user_id INTEGER PRIMARY KEY
         )
     ''')
 
-    # Default Settings
     default_settings = {
         "fsub_enabled": "1",
         "bkash_number": "017XXXXXXXX",
@@ -232,7 +223,6 @@ def init_db():
         cur.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
     cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (PRIMARY_ADMIN,))
-
     conn.commit()
     conn.close()
 
@@ -271,7 +261,19 @@ def get_or_create_user(user_id: int, username: str = "N/A"):
             user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         return user
 
+def parse_iso_date(date_str: Optional[str]) -> Optional[datetime]:
+    if not date_str:
+        return None
+    date_str = date_str.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return None
+
 def get_user_plan_info(user_id: int):
+    """Reliably verifies active plan status, remaining hours/days, and slot quota."""
     with get_db() as conn:
         user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         if not user:
@@ -287,18 +289,28 @@ def get_user_plan_info(user_id: int):
                 "max_bots": 0,
                 "current_bots": current_bots,
                 "is_active": False,
-                "remaining_str": "Expired / Inactive",
+                "remaining_str": "No Active Subscription",
                 "expiry": "N/A",
                 "plan_id": 0
             }
 
         now = datetime.now()
-        try:
-            expiry_dt = datetime.strptime(plan_expiry, "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            expiry_dt = now
+        expiry_dt = parse_iso_date(plan_expiry)
+
+        if expiry_dt is None:
+            # Fallback safe: do not prematurely delete user plan
+            return {
+                "plan_name": "Active Plan",
+                "max_bots": 1,
+                "current_bots": current_bots,
+                "is_active": True,
+                "remaining_str": "Active (Verification sync)",
+                "expiry": plan_expiry,
+                "plan_id": plan_id
+            }
 
         if now >= expiry_dt:
+            # Plan truly expired
             conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
             bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (user_id,)).fetchall()
             for (b_id,) in bots:
@@ -325,7 +337,7 @@ def get_user_plan_info(user_id: int):
             max_bots = int(get_setting("trial_max_bots") or "1")
         else:
             p = conn.execute("SELECT name, max_bots FROM plans WHERE id=?", (plan_id,)).fetchone()
-            plan_name = p[0] if p else "Active Plan"
+            plan_name = p[0] if p else "Standard Custom Plan"
             max_bots = p[1] if p else 1
 
         return {
@@ -338,8 +350,7 @@ def get_user_plan_info(user_id: int):
             "plan_id": plan_id
         }
 
-# ─── AUTOMATIC DEPENDENCY DETECTOR (FOR SINGLE .PY FILES) ───────────────────
-# Built-in modules to ignore during scan
+# ─── AUTOMATIC PIP DEPENDENCY SCANNER ──────────────────────────────────────
 STDLIB_MODULES: Set[str] = set(sys.builtin_module_names) | {
     "os", "sys", "time", "json", "math", "re", "random", "datetime", "asyncio",
     "subprocess", "sqlite3", "html", "shutil", "logging", "typing", "pathlib",
@@ -349,7 +360,6 @@ STDLIB_MODULES: Set[str] = set(sys.builtin_module_names) | {
     "csv", "xml", "email", "http", "unittest", "contextlib", "ctypes", "zipfile"
 }
 
-# Module import to pip package name translation map
 PIP_PACKAGE_MAP = {
     "telebot": "pyTelegramBotAPI",
     "telegram": "python-telegram-bot",
@@ -367,9 +377,8 @@ PIP_PACKAGE_MAP = {
 }
 
 def auto_detect_and_install_deps(py_file_path: str, bot_dir: str) -> str:
-    """Scans python AST for imported libraries and installs missing requirements automatically."""
+    """Detects imports from Python code and installs missing packages."""
     found_modules = set()
-    
     try:
         with open(py_file_path, "r", encoding="utf-8", errors="ignore") as f:
             tree = ast.parse(f.read(), filename=py_file_path)
@@ -386,33 +395,25 @@ def auto_detect_and_install_deps(py_file_path: str, bot_dir: str) -> str:
     except Exception as e:
         logging.warning(f"AST parsing notice: {e}")
 
-    # Filter out standard libraries
     third_party = [m for m in found_modules if m and m not in STDLIB_MODULES]
     if not third_party:
-        return "No external libraries detected"
+        return "No third-party packages required"
 
-    packages_to_install = []
-    for mod in third_party:
-        pkg_name = PIP_PACKAGE_MAP.get(mod, mod)
-        packages_to_install.append(pkg_name)
-
-    # Generate requirements.txt
+    packages_to_install = [PIP_PACKAGE_MAP.get(mod, mod) for mod in third_party]
     req_path = os.path.join(bot_dir, "requirements.txt")
     with open(req_path, "w", encoding="utf-8") as rf:
         rf.write("\n".join(packages_to_install))
 
-    # Install packages
     proc = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-r", req_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=180
     )
-    
     if proc.returncode == 0:
         return f"✅ Auto-Installed ({', '.join(packages_to_install)})"
     else:
-        err_out = proc.stderr.decode('utf-8', errors='ignore')[:200]
+        err_out = proc.stderr.decode('utf-8', errors='ignore')[:250]
         return f"⚠️ Warning during install:\n<code>{html.escape(err_out)}</code>"
 
 # ─── PROCESS SUPERVISOR HELPER FUNCTIONS ───────────────────────────────────
@@ -449,7 +450,8 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
     except Exception as e:
         return False, f"Failed to execute command: {str(e)}"
 
-    time.sleep(1.2)
+    # Wait 1.5s to check if it immediately crashes
+    time.sleep(1.5)
     poll_res = proc.poll()
     if poll_res is not None:
         del ACTIVE_PROCESSES[bot_id]
@@ -458,7 +460,7 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
             conn.commit()
         try:
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                tail = "".join(f.readlines()[-15:])
+                tail = "".join(f.readlines()[-20:])
         except Exception:
             tail = "Check output log file."
         return False, f"Process crashed immediately on launch (Exit code: {poll_res}):\n{tail}"
@@ -482,6 +484,7 @@ def stop_bot_instance(bot_id: int):
 # ─── FSM STATES ─────────────────────────────────────────────────────────────
 class UserStates(StatesGroup):
     uploading_bot = State()
+    waiting_for_requirements = State()
     deposit_amount = State()
     deposit_trx = State()
     deposit_photo = State()
@@ -505,7 +508,6 @@ class AdminStates(StatesGroup):
 MENU_BUTTON_TEXTS = ["Deploy Bot", "My Bots", "Plans", "Wallet & Balance", "Server Ping", "Support", "Admin Panel"]
 
 def main_reply_keyboard(user_id: int):
-    """Builds the reply keyboard. Admin Panel button is ONLY shown if user_id is admin."""
     kb = [
         [rkb("Deploy Bot", style="success", icon_id=EMOJIS["power"])],
         [rkb("My Bots", style="primary", icon_id=EMOJIS["trader"]), rkb("Plans", style="primary", icon_id=EMOJIS["diamond"])],
@@ -522,7 +524,6 @@ def cancel_btn():
     )
 
 async def check_menu_button_escape(message: types.Message, state: FSMContext) -> bool:
-    """If user clicks any reply keyboard button while inside a state, clear state and open that menu."""
     text = message.text or ""
     uid = message.from_user.id
     if text.startswith("/start"):
@@ -1032,7 +1033,30 @@ async def admin_reject_deposit(callback: types.CallbackQuery):
         pass
     await callback.answer("Deposit Rejected!", show_alert=True)
 
-# ─── UPLOAD & BOT HOSTING ENGINE (AUTO PIP FOR SINGLE .PY FILES) ───────────
+# ─── ANIMATED PROGRESS BAR LOADER ──────────────────────────────────────────
+async def run_progress_loader(msg: types.Message, title: str):
+    """Shows animated progress bar loader from 20% to 100%."""
+    stages = [
+        ("■■□□□□□□□□ 20%", "Allocating container environment..."),
+        ("■■■■□□□□□□ 40%", "Scanning script & parsing requirements..."),
+        ("■■■■■■□□□□ 60%", "Installing packages via PIP package manager..."),
+        ("■■■■■■■■□□ 80%", "Verifying execution syntax integrity..."),
+        ("■■■■■■■■■■ 100%", "Executing container subprocess...")
+    ]
+    for bar, desc in stages:
+        try:
+            await msg.edit_text(
+                f"{CE('loading')} <b>{title}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"<code>[{bar}]</code>\n"
+                f"<i>{desc}</i>",
+                parse_mode="HTML"
+            )
+            await asyncio.sleep(0.6)
+        except Exception:
+            pass
+
+# ─── UPLOAD & BOT HOSTING ENGINE (2-STEP UPLOAD + ANYTIME UPLOAD) ──────────
 @dp.message(F.text.contains("Deploy Bot"))
 async def upload_prompt(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -1057,142 +1081,283 @@ async def upload_prompt(message: types.Message, state: FSMContext):
         )
 
     await message.answer(
-        f"{CE('up')} <b>DEPLOY BOT INSTANCE</b>\n"
+        f"{CE('up')} <b>STEP 1: SEND PYTHON FILE (.PY)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Active Tier: <code>{plan_info['plan_name']}</code> ({plan_info['current_bots']}/{plan_info['max_bots']} Slots Used)\n\n"
-        f"Please send your source code file document:\n"
-        f"• <b>Single Python Source:</b> <code>.py</code> <i>(Requirements will be auto-scanned & installed!)</i>\n"
-        f"• <b>Single Node Source:</b> <code>.js</code>\n"
-        f"• <b>Full Project Archive:</b> <code>.zip</code> <i>(containing main.py/index.js)</i>\n\n"
+        f"Please send your primary source file document:\n"
+        f"• <b>Python Code:</b> <code>.py</code>\n"
+        f"• <b>Or Project Archive:</b> <code>.zip</code> / <code>.js</code>\n\n"
         f"{CE('loading')} <i>Awaiting file document...</i>",
         reply_markup=cancel_btn(),
         parse_mode="HTML"
     )
     await state.set_state(UserStates.uploading_bot)
 
-@dp.message(UserStates.uploading_bot, F.document)
+# STEP 1: Process First Document (Accepts from State or Direct Upload anytime)
+@dp.message(F.document)
 async def process_file_upload(message: types.Message, state: FSMContext):
+    # Check if user is in another specific text state (like deposit amounts)
+    curr_state = await state.get_state()
+    if curr_state in [UserStates.deposit_amount.state, UserStates.deposit_trx.state]:
+        return
+
+    # Check Requirements File Upload (Step 2)
+    if curr_state == UserStates.waiting_for_requirements.state:
+        return await handle_requirements_file(message, state)
+
+    user_id = message.from_user.id
+    get_or_create_user(user_id, message.from_user.username or "N/A")
+    plan_info = get_user_plan_info(user_id)
+
+    # Validate active plan quota
+    if not plan_info or not plan_info["is_active"]:
+        return await message.answer(
+            f"{CE('notice')} <b>No Active Plan!</b> Please activate a plan via <b>Plans</b> before uploading files.",
+            parse_mode="HTML"
+        )
+    if plan_info["current_bots"] >= plan_info["max_bots"]:
+        return await message.answer(
+            f"{CE('close')} <b>Container Quota Full!</b> ({plan_info['current_bots']}/{plan_info['max_bots']} used). Upgrade your plan or remove old bots.",
+            parse_mode="HTML"
+        )
+
     doc = message.document
     filename = doc.file_name or "bot_code.py"
     ext = os.path.splitext(filename)[1].lower()
-    user_id = message.from_user.id
-    
+
     if ext not in [".py", ".js", ".zip"]:
         return await message.answer(
-            f"{CE('close')} <b>Unsupported File Extension!</b>\n"
-            f"Allowed formats: <code>.py</code>, <code>.js</code>, or <code>.zip</code>",
+            f"{CE('close')} <b>Unsupported File!</b> Please upload <code>.py</code>, <code>.js</code>, or <code>.zip</code> files.",
             reply_markup=cancel_btn(),
             parse_mode="HTML"
         )
-        
-    status_msg = await message.answer(f"{CE('loading')} <i>Step 1/4: Downloading & Allocating isolated container...</i>", parse_mode="HTML")
-    
+
+    status_msg = await message.answer(f"{CE('loading')} <i>Downloading & Allocating isolated container...</i>", parse_mode="HTML")
     timestamp = int(time.time())
     bot_dir = os.path.join(BOT_STORAGE_DIR, f"{user_id}_{timestamp}")
     os.makedirs(bot_dir, exist_ok=True)
-    
+
     file_path = os.path.join(bot_dir, filename)
     file_info = await bot.get_file(doc.file_id)
     await bot.download_file(file_info.file_path, destination=file_path)
-    
-    entry_file = filename
-    bot_type = "python" if ext == ".py" else ("nodejs" if ext == ".js" else "unknown")
-    pip_status_note = "N/A"
-    
-    # ── Step 2: Extraction or Single .PY Auto-Dependency Inspection ──
+
+    # Case A: ZIP archive provided
     if ext == ".zip":
-        await status_msg.edit_text(f"{CE('loading')} <i>Step 2/4: Unpacking ZIP and validating structure...</i>", parse_mode="HTML")
+        await status_msg.edit_text(f"{CE('loading')} <i>Unpacking ZIP archive and detecting configuration...</i>", parse_mode="HTML")
         try:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(bot_dir)
             os.remove(file_path)
         except Exception as e:
             shutil.rmtree(bot_dir, ignore_errors=True)
-            return await status_msg.edit_text(f"{CE('close')} <b>Archive Extraction Failed!</b>\nError: <code>{html.escape(str(e))}</code>", parse_mode="HTML")
-            
+            return await status_msg.edit_text(f"{CE('close')} <b>Archive Extraction Error:</b> <code>{html.escape(str(e))}</code>", parse_mode="HTML")
+
         files = os.listdir(bot_dir)
-        if "main.py" in files:
-            entry_file = "main.py"
-            bot_type = "python"
-        elif "bot.py" in files:
-            entry_file = "bot.py"
-            bot_type = "python"
-        elif "index.js" in files:
-            entry_file = "index.js"
-            bot_type = "nodejs"
-        elif "main.js" in files:
-            entry_file = "main.js"
-            bot_type = "nodejs"
-        else:
+        entry_file = None
+        bot_type = "python"
+        for candidate in ["main.py", "bot.py"]:
+            if candidate in files:
+                entry_file = candidate
+                break
+        if not entry_file:
+            for candidate in ["index.js", "main.js"]:
+                if candidate in files:
+                    entry_file = candidate
+                    bot_type = "nodejs"
+                    break
+        if not entry_file:
             py_files = [f for f in files if f.endswith(".py")]
             if py_files:
                 entry_file = py_files[0]
-                bot_type = "python"
             else:
                 shutil.rmtree(bot_dir, ignore_errors=True)
-                return await status_msg.edit_text(
-                    f"{CE('close')} <b>No Valid Entrypoint Located!</b>\n"
-                    f"Your zip archive must contain <code>main.py</code>, <code>bot.py</code>, or <code>index.js</code>.",
-                    parse_mode="HTML"
-                )
+                return await status_msg.edit_text(f"{CE('close')} <b>No main.py or bot.py found in zip!</b>", parse_mode="HTML")
 
-        req_file = os.path.join(bot_dir, "requirements.txt")
-        if os.path.exists(req_file):
-            await status_msg.edit_text(f"{CE('loading')} <i>Step 3/4: Resolving & Installing packages from requirements.txt...</i>", parse_mode="HTML")
-            install_proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if install_proc.returncode == 0:
-                pip_status_note = "✅ Installed Successfully from requirements.txt"
-            else:
-                err_log = install_proc.stderr.decode('utf-8', errors='replace')[:250]
-                pip_status_note = f"⚠️ Warning during install:\n<code>{html.escape(err_log)}</code>"
-        else:
-            # If ZIP has a python file but no requirements.txt, auto-scan the entrypoint!
-            if bot_type == "python":
-                await status_msg.edit_text(f"{CE('loading')} <i>Step 3/4: Scanning & Auto-installing imported modules...</i>", parse_mode="HTML")
-                pip_status_note = auto_detect_and_install_deps(os.path.join(bot_dir, entry_file), bot_dir)
+        # Launch directly with progress loader
+        await finalize_and_launch_bot(
+            user_id=user_id,
+            bot_name=filename,
+            bot_type=bot_type,
+            bot_dir=bot_dir,
+            entry_file=entry_file,
+            status_msg=status_msg,
+            state=state,
+            has_req_txt=os.path.exists(os.path.join(bot_dir, "requirements.txt"))
+        )
+        return
 
+    # Case B: Single .JS file
+    elif ext == ".js":
+        await finalize_and_launch_bot(
+            user_id=user_id,
+            bot_name=filename,
+            bot_type="nodejs",
+            bot_dir=bot_dir,
+            entry_file=filename,
+            status_msg=status_msg,
+            state=state,
+            has_req_txt=False
+        )
+        return
+
+    # Case C: Single .PY file -> PROMPT STEP 2: Ask for requirements.txt
     elif ext == ".py":
-        # ── SINGLE .PY AUTO DEPENDENCY SCAN & INSTALLATION ──
-        await status_msg.edit_text(f"{CE('loading')} <i>Step 2/4: Analyzing code imports & generating requirements...</i>", parse_mode="HTML")
-        pip_status_note = auto_detect_and_install_deps(file_path, bot_dir)
+        await state.update_data(
+            bot_dir=bot_dir,
+            filename=filename,
+            entry_file=filename,
+            bot_type="python"
+        )
+        await state.set_state(UserStates.waiting_for_requirements)
 
-    # ── Step 4: Syntax Pre-flight Check ──
-    syntax_status_note = "N/A"
+        req_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [ikb("⚡ Skip / Auto-Detect Requirements", callback_data="skip_req_upload", style="success", icon_id=EMOJIS["done"])],
+            [ikb("Cancel", callback_data="cancel_action", style="danger", icon_id=EMOJIS["close"])]
+        ])
+
+        await status_msg.edit_text(
+            f"{CE('done')} <b>Step 1/2 Complete:</b> <code>{filename}</code> received!\n\n"
+            f"{CE('up')} <b>STEP 2: SEND REQUIREMENTS.TXT</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Please send your <b>requirements.txt</b> file now.\n\n"
+            f"<i>Don't have one? Tap 'Auto-Detect' below to let the server scan all imports automatically!</i>",
+            reply_markup=req_keyboard,
+            parse_mode="HTML"
+        )
+
+# STEP 2: Handle requirements.txt upload
+async def handle_requirements_file(message: types.Message, state: FSMContext):
+    doc = message.document
+    data = await state.get_data()
+    bot_dir = data.get("bot_dir")
+    filename = data.get("filename")
+
+    if not bot_dir or not os.path.exists(bot_dir):
+        await state.clear()
+        return await message.answer(f"{CE('close')} Session expired. Please re-upload your .py file.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
+
+    status_msg = await message.answer(f"{CE('loading')} <i>Receiving requirements.txt...</i>", parse_mode="HTML")
+    req_file_path = os.path.join(bot_dir, "requirements.txt")
+    file_info = await bot.get_file(doc.file_id)
+    await bot.download_file(file_info.file_path, destination=req_file_path)
+
+    await finalize_and_launch_bot(
+        user_id=message.from_user.id,
+        bot_name=filename,
+        bot_type="python",
+        bot_dir=bot_dir,
+        entry_file=filename,
+        status_msg=status_msg,
+        state=state,
+        has_req_txt=True
+    )
+
+# STEP 2: Skip / Auto-Detect Requirements Callback
+@dp.callback_query(F.data == "skip_req_upload")
+async def skip_requirements_callback(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    bot_dir = data.get("bot_dir")
+    filename = data.get("filename")
+
+    if not bot_dir or not os.path.exists(bot_dir):
+        await state.clear()
+        return await callback.answer("Session expired. Please re-upload your .py file.", show_alert=True)
+
+    await finalize_and_launch_bot(
+        user_id=callback.from_user.id,
+        bot_name=filename,
+        bot_type="python",
+        bot_dir=bot_dir,
+        entry_file=filename,
+        status_msg=callback.message,
+        state=state,
+        has_req_txt=False
+    )
+
+# Core Deploy & Run Engine
+async def finalize_and_launch_bot(
+    user_id: int,
+    bot_name: str,
+    bot_type: str,
+    bot_dir: str,
+    entry_file: str,
+    status_msg: types.Message,
+    state: FSMContext,
+    has_req_txt: bool
+):
+    await state.clear()
+
+    # Animated Progress Loader
+    await run_progress_loader(status_msg, f"DEPLOYING #{bot_name}")
+
+    # Install Requirements
+    pip_note = "Standard Runtime"
+    req_file = os.path.join(bot_dir, "requirements.txt")
+
+    if has_req_txt and os.path.exists(req_file):
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", req_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=180
+            )
+            if proc.returncode == 0:
+                pip_note = "✅ Installed from requirements.txt"
+            else:
+                err_log = proc.stderr.decode('utf-8', errors='ignore')[:250]
+                pip_note = f"⚠️ Install Warning:\n<code>{html.escape(err_log)}</code>"
+        except Exception as e:
+            pip_note = f"⚠️ Pip notice: {str(e)}"
+    elif bot_type == "python":
+        # Auto-detect dependencies
+        py_full = os.path.join(bot_dir, entry_file)
+        pip_note = auto_detect_and_install_deps(py_full, bot_dir)
+
+    # Pre-flight compile check
+    syntax_note = "Passed"
     if bot_type == "python":
-        entry_full_path = os.path.join(bot_dir, entry_file)
-        compile_check = subprocess.run([sys.executable, "-m", "py_compile", entry_full_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if compile_check.returncode == 0:
-            syntax_status_note = "✅ Passed (No syntax errors detected)"
-        else:
-            err_text = compile_check.stderr.decode('utf-8', errors='replace')[:250]
-            syntax_status_note = f"⚠️ Syntax Warning:\n<code>{html.escape(err_text)}</code>"
+        py_full = os.path.join(bot_dir, entry_file)
+        compile_check = subprocess.run([sys.executable, "-m", "py_compile", py_full], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if compile_check.returncode != 0:
+            syntax_note = f"Syntax Warning: {compile_check.stderr.decode('utf-8', errors='ignore')[:200]}"
 
     # Save to Database
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO bots (user_id, bot_name, bot_type, folder_path, entry_file, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, filename, bot_type, bot_dir, entry_file, "stopped", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            (user_id, bot_name, bot_type, bot_dir, entry_file, "stopped", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         conn.commit()
         bot_id = cur.lastrowid
-        
-    await state.clear()
-    
-    diagnostic_report = (
-        f"{CE('done')} <b>DEPLOYMENT COMPLETED & VERIFIED!</b> {CE('fire')}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('link')} <b>Instance ID:</b> <code>#{bot_id}</code>\n"
-        f"{CE('arrow_right')} <b>Primary File:</b> <code>{entry_file}</code>\n"
-        f"{CE('power')} <b>Runtime:</b> <code>{bot_type.upper()}</code>\n"
-        f"{CE('diamond')} <b>Dependencies:</b> {pip_status_note}\n"
-        f"{CE('speed')} <b>Pre-flight Check:</b> {syntax_status_note}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎉 <i>Your container is provisioned and ready to run!</i>\n"
-        f"Tap <b>My Bots</b> to launch and manage your instance."
-    )
-    
-    await status_msg.edit_text(diagnostic_report, parse_mode="HTML")
+
+    # AUTO RUN: Launch the bot instance immediately
+    success, launch_msg = launch_bot_instance(bot_id, bot_dir, entry_file, bot_type)
+
+    if success:
+        success_card = (
+            f"{CE('done')} <b>INSTANCE LAUNCHED ONLINE!</b> {CE('fire')}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{CE('link')} <b>Bot Instance:</b> <code>#{bot_id}</code>\n"
+            f"{CE('arrow_right')} <b>Primary File:</b> <code>{entry_file}</code>\n"
+            f"{CE('power')} <b>Runtime:</b> <code>{bot_type.upper()}</code>\n"
+            f"{CE('speed')} <b>Status:</b> 🟢 <b>LIVE & RUNNING</b>\n"
+            f"{CE('diamond')} <b>Dependencies:</b> {pip_note}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎉 <i>Your bot process is running 24/7. Manage anytime via <b>My Bots</b>.</i>"
+        )
+        await status_msg.edit_text(success_card, parse_mode="HTML")
+    else:
+        fail_card = (
+            f"{CE('notice')} <b>EXECUTION ERROR DETECTED (#{bot_id})!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{CE('close')} <b>Process Output Log:</b>\n"
+            f"<pre>{html.escape(launch_msg)}</pre>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Fix the error above and restart instance from <b>My Bots</b>.</i>"
+        )
+        await status_msg.edit_text(fail_card, parse_mode="HTML")
 
 # ─── MY BOTS MANAGEMENT (FULL CONTROLS & MONITORING) ───────────────────────
 @dp.message(F.text.contains("My Bots"))
@@ -1931,7 +2096,6 @@ async def background_scheduler():
                 
                 for (u_id,) in expired_users:
                     conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (u_id,))
-                    
                     bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (u_id,)).fetchall()
                     for (b_id,) in bots:
                         stop_bot_instance(b_id)
@@ -1960,7 +2124,7 @@ async def main():
     print(" Primary Admin ID: 2014144404 ")
     print(" Database: nebulahost.db ")
     print(" Support: @YourDomains ")
-    print(" Auto-Pip Scanner: Enabled ")
+    print(" 2-Step File Deployment: Active ")
     print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
     print("==============================================")
     asyncio.create_task(background_scheduler())
