@@ -1,3 +1,11 @@
+"""
+Telegram Host Bot (Python & Node.js Cloud Hosting Platform)
+Target Admin: 2014144404
+Default Support: @YourDomains
+Language: English (Styled UI / Custom Emojis & Button Colors)
+Framework: Aiogram 3.x + SQLite3 + Subprocess Manager
+"""
+
 import os
 import sys
 import time
@@ -66,6 +74,7 @@ EMOJIS = {
     "gift": "6071123877067494706",
     "telegram": "5472217698689638395",
     "up": "6204251568137574946",
+    "download": "6204251568137574946",
     "sms": "6206112371308500200",
     "done": "6206378324273403309",
     "loading": "6206118633370818254",
@@ -106,7 +115,7 @@ def CE(key: str, fallback: str = "✨") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
-BOT_TOKEN = "8675366388:AAHOUv_JzvBTiWCSyieozvl7-CQ9cABhpOI"
+BOT_TOKEN = "8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
 DB_FILE = "babyhost.db"
@@ -210,7 +219,7 @@ def init_db():
         "bkash_number": "017XXXXXXXX",
         "nagad_number": "018XXXXXXXX",
         "binance_id": "12345678",
-        "support_user": "@YourSupportHandle",
+        "support_user": "@YourDomains",
         "trial_enabled": "1",
         "trial_limit": "1",
         "trial_days": "3",
@@ -289,6 +298,12 @@ def get_user_plan_info(user_id: int):
 
         if now >= expiry_dt:
             conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
+            
+            # Stop user bots upon expiry
+            bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (user_id,)).fetchall()
+            for (b_id,) in bots:
+                stop_bot_instance(b_id)
+                
             conn.commit()
             return {
                 "plan_name": "Plan Expired",
@@ -304,7 +319,7 @@ def get_user_plan_info(user_id: int):
         days = diff.days
         hours = diff.seconds // 3600
         mins = (diff.seconds % 3600) // 60
-        remaining_str = f"{days} Days, {hours} Hours, {mins} Min remaining"
+        remaining_str = f"{days}d {hours}h {mins}m remaining"
 
         if plan_id == -1:
             plan_name = "Free Trial"
@@ -359,7 +374,7 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
     except Exception as e:
         return False, f"Failed to execute command: {str(e)}"
 
-    # Brief health check (wait 1.2s to detect crash on launch)
+    # Health check on launch
     time.sleep(1.2)
     poll_res = proc.poll()
     if poll_res is not None:
@@ -367,7 +382,6 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
         with get_db() as conn:
             conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (bot_id,))
             conn.commit()
-        # Read latest error from log
         try:
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
                 tail = "".join(f.readlines()[-15:])
@@ -416,17 +430,17 @@ class AdminStates(StatesGroup):
 # ─── KEYBOARDS & NAVIGATION SHIELD ─────────────────────────────────────────
 MENU_BUTTON_TEXTS = ["Deploy Bot", "My Bots", "Plans", "Wallet & Balance", "Server Ping", "Support", "Admin Panel"]
 
-def main_reply_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [rkb("Deploy Bot", style="success", icon_id=EMOJIS["power"])],
-            [rkb("My Bots", style="primary", icon_id=EMOJIS["trader"]), rkb("Plans", style="primary", icon_id=EMOJIS["diamond"])],
-            [rkb("Wallet & Balance", style="success", icon_id=EMOJIS["wallet"])],
-            [rkb("Server Ping", style="primary", icon_id=EMOJIS["speed"]), rkb("Support", style="primary", icon_id=EMOJIS["support"])],
-            [rkb("Admin Panel", style="danger", icon_id=EMOJIS["admin"])]
-        ],
-        resize_keyboard=True
-    )
+def main_reply_keyboard(user_id: int):
+    """Builds the reply keyboard. Admin Panel button is ONLY shown if user_id is admin."""
+    kb = [
+        [rkb("Deploy Bot", style="success", icon_id=EMOJIS["power"])],
+        [rkb("My Bots", style="primary", icon_id=EMOJIS["trader"]), rkb("Plans", style="primary", icon_id=EMOJIS["diamond"])],
+        [rkb("Wallet & Balance", style="success", icon_id=EMOJIS["wallet"])],
+        [rkb("Server Ping", style="primary", icon_id=EMOJIS["speed"]), rkb("Support", style="primary", icon_id=EMOJIS["support"])]
+    ]
+    if is_admin(user_id):
+        kb.append([rkb("Admin Panel", style="danger", icon_id=EMOJIS["admin"])])
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def cancel_btn():
     return InlineKeyboardMarkup(
@@ -436,6 +450,7 @@ def cancel_btn():
 async def check_menu_button_escape(message: types.Message, state: FSMContext) -> bool:
     """If user clicks any reply keyboard button while inside a state, clear state and open that menu."""
     text = message.text or ""
+    uid = message.from_user.id
     if text.startswith("/start"):
         await state.clear()
         await start_handler(message, state)
@@ -455,7 +470,8 @@ async def check_menu_button_escape(message: types.Message, state: FSMContext) ->
         elif "Support" in text:
             await support_handler(message)
         elif "Admin Panel" in text:
-            await admin_panel_root(message)
+            if is_admin(uid):
+                await admin_panel_root(message)
         return True
     return False
 
@@ -469,11 +485,12 @@ async def check_all_fsub(user_id: int) -> bool:
         return True
     for (chat_id,) in channels:
         try:
-            cid = int(chat_id) if chat_id.lstrip('-').isdigit() else chat_id
+            cid = int(chat_id) if (chat_id.startswith("-") and chat_id[1:].isdigit()) or chat_id.isdigit() else chat_id
             member = await bot.get_chat_member(chat_id=cid, user_id=user_id)
             if member.status in ["left", "kicked"]:
                 return False
-        except Exception:
+        except Exception as e:
+            logging.error(f"FSUB verification failed for {chat_id}: {e}")
             return False
     return True
 
@@ -527,7 +544,7 @@ async def start_handler(message: types.Message, state: FSMContext = None):
         f"{CE('speed')} <i>High-performance isolated Subprocess execution (Python & Node.js).</i>\n"
         f"<i>Select an option from the menu buttons below:</i>"
     )
-    await message.answer(profile_text, reply_markup=main_reply_keyboard(), parse_mode="HTML")
+    await message.answer(profile_text, reply_markup=main_reply_keyboard(user_id), parse_mode="HTML")
 
 @dp.callback_query(F.data == "verify_fsub")
 async def verify_fsub_callback(callback: types.CallbackQuery):
@@ -535,7 +552,7 @@ async def verify_fsub_callback(callback: types.CallbackQuery):
         await callback.message.delete()
         await callback.message.answer(
             f"{CE('done')} <b>Verification Complete!</b> Welcome to Nebula Cloud.",
-            reply_markup=main_reply_keyboard(),
+            reply_markup=main_reply_keyboard(callback.from_user.id),
             parse_mode="HTML"
         )
     else:
@@ -568,7 +585,7 @@ async def ping_handler(message: types.Message):
 # ─── SUPPORT DESK ──────────────────────────────────────────────────────────
 @dp.message(F.text.contains("Support"))
 async def support_handler(message: types.Message):
-    handle = get_setting("support_user")
+    handle = get_setting("support_user") or "@YourDomains"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [ikb("Contact Support Desk", url=f"https://t.me/{handle.replace('@', '')}", style="primary", icon_id=EMOJIS["support"])]
     ])
@@ -882,7 +899,7 @@ async def process_deposit_photo(message: types.Message, state: FSMContext):
         f"{CE('done')} <b>Deposit Request Submitted!</b>\n\n"
         f"Your transaction details and screenshot have been delivered to our billing administrators. "
         f"Your balance will reflect automatically once confirmed.",
-        reply_markup=main_reply_keyboard(),
+        reply_markup=main_reply_keyboard(user_id),
         parse_mode="HTML"
     )
 
@@ -1078,7 +1095,6 @@ async def process_file_upload(message: types.Message, state: FSMContext):
         
     await state.clear()
     
-    # Comprehensive Deployment Diagnostics Report
     diagnostic_report = (
         f"{CE('done')} <b>DEPLOYMENT COMPLETED & VERIFIED!</b> {CE('fire')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1128,7 +1144,6 @@ async def bot_controls(callback: types.CallbackQuery):
     is_running = b[6] == "running" and bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None
     status_icon = f"{CE('done')} LIVE (Running)" if is_running else f"{CE('close')} STOPPED"
     
-    # Live CPU / Memory measurement
     res_usage_str = "Offline"
     if is_running:
         try:
@@ -1185,7 +1200,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
     folder, entry, btype = bot_row[4], bot_row[5], bot_row[3]
     log_file = os.path.join(folder, "output.log")
 
-    # START ACTION
+    # START
     if action == "start":
         if bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None:
             return await callback.answer("⚠️ Bot process is already active and running!", show_alert=True)
@@ -1200,12 +1215,12 @@ async def execute_bot_action(callback: types.CallbackQuery):
                 parse_mode="HTML"
             )
 
-    # STOP ACTION
+    # STOP
     elif action == "stop":
         stop_bot_instance(bot_id)
         await callback.answer("🛑 Instance subprocess stopped!", show_alert=True)
 
-    # RESTART ACTION
+    # RESTART
     elif action == "restart":
         stop_bot_instance(bot_id)
         time.sleep(0.5)
@@ -1218,7 +1233,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
                 parse_mode="HTML"
             )
 
-    # VIEW LOGS ACTION
+    # LOGS
     elif action == "logs":
         if not os.path.exists(log_file):
             return await callback.answer("No console log file generated yet.", show_alert=True)
@@ -1236,7 +1251,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
 
-    # BACKUP / DOWNLOAD SOURCE CODE
+    # DOWNLOAD BACKUP
     elif action == "download":
         await callback.answer("📦 Packaging source archive...")
         zip_archive_path = os.path.join(BOT_STORAGE_DIR, f"backup_bot_{bot_id}")
@@ -1252,7 +1267,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
             os.remove(full_zip)
         return
 
-    # DELETE BOT INSTANCE
+    # DELETE
     elif action == "delete":
         stop_bot_instance(bot_id)
             
@@ -1374,7 +1389,7 @@ async def add_chan_step3(message: types.Message, state: FSMContext):
 
     title = link.split("/")[-1].replace("@", "")
     try:
-        cid = int(chat_id) if chat_id.lstrip('-').isdigit() else chat_id
+        cid = int(chat_id) if (chat_id.startswith("-") and chat_id[1:].isdigit()) or chat_id.isdigit() else chat_id
         chat = await bot.get_chat(cid)
         title = chat.title
     except Exception:
@@ -1388,7 +1403,7 @@ async def add_chan_step3(message: types.Message, state: FSMContext):
         f"{CE('done')} <b>Channel Added Successfully!</b>\n\n"
         f"{CE('link')} <b>Title:</b> {title}\n"
         f"{CE('telegram')} <b>Chat ID:</b> <code>{chat_id}</code>",
-        reply_markup=main_reply_keyboard(),
+        reply_markup=main_reply_keyboard(message.from_user.id),
         parse_mode="HTML"
     )
 
@@ -1435,7 +1450,7 @@ async def edit_t_days(callback: types.CallbackQuery, state: FSMContext):
 async def save_t_days(message: types.Message, state: FSMContext):
     await state.clear()
     set_setting("trial_days", message.text.strip())
-    await message.answer(f"{CE('done')} Trial duration set to <b>{message.text.strip()} Days</b>.", reply_markup=main_reply_keyboard(), parse_mode="HTML")
+    await message.answer(f"{CE('done')} Trial duration set to <b>{message.text.strip()} Days</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
 
 @dp.callback_query(F.data == "edit_trial_bots_btn")
 async def edit_t_bots(callback: types.CallbackQuery, state: FSMContext):
@@ -1446,7 +1461,7 @@ async def edit_t_bots(callback: types.CallbackQuery, state: FSMContext):
 async def save_t_bots(message: types.Message, state: FSMContext):
     await state.clear()
     set_setting("trial_max_bots", message.text.strip())
-    await message.answer(f"{CE('done')} Trial bot slot limit set to <b>{message.text.strip()}</b>.", reply_markup=main_reply_keyboard(), parse_mode="HTML")
+    await message.answer(f"{CE('done')} Trial bot slot limit set to <b>{message.text.strip()}</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
 
 @dp.callback_query(F.data == "edit_trial_limit_btn")
 async def edit_t_limit(callback: types.CallbackQuery, state: FSMContext):
@@ -1457,7 +1472,7 @@ async def edit_t_limit(callback: types.CallbackQuery, state: FSMContext):
 async def save_t_limit(message: types.Message, state: FSMContext):
     await state.clear()
     set_setting("trial_limit", message.text.strip())
-    await message.answer(f"{CE('done')} Maximum claim limit updated to <b>{message.text.strip()} time(s)</b>.", reply_markup=main_reply_keyboard(), parse_mode="HTML")
+    await message.answer(f"{CE('done')} Maximum claim limit updated to <b>{message.text.strip()} time(s)</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
 
 # 3. All Hosted Bots & Remote Code Download
 @dp.callback_query(F.data == "adm_all_bots")
@@ -1605,7 +1620,7 @@ async def adm_manage_plans(callback: types.CallbackQuery, state: FSMContext):
         buttons.append([ikb(f"Delete '{p[1]}'", callback_data=f"delplan_{p[0]}", style="danger", icon_id=EMOJIS["delete"])])
 
     buttons.append([ikb("Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])])
-    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])])
+    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])] )
     
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
@@ -1743,7 +1758,7 @@ async def save_admin(message: types.Message, state: FSMContext):
         with get_db() as conn:
             conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (aid,))
             conn.commit()
-        await message.answer(f"{CE('done')} User <code>{aid}</code> promoted to Admin.", reply_markup=main_reply_keyboard(), parse_mode="HTML")
+        await message.answer(f"{CE('done')} User <code>{aid}</code> promoted to Admin.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
     except ValueError:
         await message.answer(f"{CE('close')} Invalid Telegram ID.")
 
@@ -1762,14 +1777,14 @@ async def delete_admin(message: types.Message, state: FSMContext):
         with get_db() as conn:
             conn.execute("DELETE FROM admins WHERE user_id=?", (aid,))
             conn.commit()
-        await message.answer(f"{CE('done')} Administrator <code>{aid}</code> demoted.", reply_markup=main_reply_keyboard(), parse_mode="HTML")
+        await message.answer(f"{CE('done')} Administrator <code>{aid}</code> demoted.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
     except ValueError:
         await message.answer(f"{CE('close')} Invalid Telegram ID.")
 
 # 9. Support Settings
 @dp.callback_query(F.data == "adm_support")
 async def adm_support_prompt(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('support')} <b>Send new support username handle (e.g. @YourSupport):</b>", reply_markup=cancel_btn(), parse_mode="HTML")
+    await callback.message.answer(f"{CE('support')} <b>Send new support username handle (e.g. @YourDomains):</b>", reply_markup=cancel_btn(), parse_mode="HTML")
     await state.set_state(AdminStates.update_support)
 
 @dp.message(AdminStates.update_support)
@@ -1790,7 +1805,7 @@ async def back_to_admin_root(callback: types.CallbackQuery):
 async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
-    await callback.message.answer(f"{CE('close')} <b>Operation Cancelled.</b>", reply_markup=main_reply_keyboard(), parse_mode="HTML")
+    await callback.message.answer(f"{CE('close')} <b>Operation Cancelled.</b>", reply_markup=main_reply_keyboard(callback.from_user.id), parse_mode="HTML")
 
 # ─── EXPIRY CRON & MONITORING BACKGROUND TASK ──────────────────────────────
 async def background_scheduler():
@@ -1834,6 +1849,7 @@ async def main():
     print(" NEBULA CLOUD HOST ENGINE - ACTIVE ")
     print(" Primary Admin ID: 2014144404")
     print(" Database: babyhost.db ")
+    print(" Support: @YourDomains ")
     print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
     print("==============================================")
     asyncio.create_task(background_scheduler())
