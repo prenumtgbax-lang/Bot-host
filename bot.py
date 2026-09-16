@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import html
 import zipfile
 import shutil
 import asyncio
@@ -108,7 +109,7 @@ def CE(key: str, fallback: str = "✨") -> str:
 BOT_TOKEN = "8675366388:AAHOUv_JzvBTiWCSyieozvl7-CQ9cABhpOI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "nebula_cloud_v3.db"  # নতুন ফ্রেশ ডাটাবেজ নাম
+DB_FILE = "nebula_cloud_v4.db"  # নতুন ডাটাবেজ নাম
 
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
@@ -208,7 +209,7 @@ def init_db():
         "bkash_number": "017XXXXXXXX",
         "nagad_number": "018XXXXXXXX",
         "binance_id": "12345678",
-        "support_user": "@YourDomains",
+        "support_user": "@YourSupportHandle",
         "trial_enabled": "1",
         "trial_limit": "1",
         "trial_days": "3",
@@ -218,7 +219,6 @@ def init_db():
     for k, v in default_settings.items():
         cur.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
-    # এসকিউএল সিনট্যাক্স এরর ফিক্স করা হয়েছে: (?,) এর বদলে (?)
     cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (PRIMARY_ADMIN,))
 
     conn.commit()
@@ -226,7 +226,7 @@ def init_db():
 
 init_db()
 
-# ─── DATABASE HELPER FUNCTIONS ─────────────────────────────────────────────
+# ─── DATABASE & USER HELPERS ───────────────────────────────────────────────
 def get_db():
     return sqlite3.connect(DB_FILE)
 
@@ -247,9 +247,83 @@ def is_admin(user_id: int) -> bool:
         res = conn.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,)).fetchone()
         return bool(res)
 
-def get_user(user_id: int):
+def get_or_create_user(user_id: int, username: str = "N/A"):
     with get_db() as conn:
-        return conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        if not user:
+            conn.execute(
+                "INSERT INTO users (user_id, username, joined_at) VALUES (?, ?, ?)",
+                (user_id, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return user
+
+def get_user_plan_info(user_id: int):
+    """Accurately computes real-time plan status, remaining days/hours, and bot slots."""
+    with get_db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        if not user:
+            return None
+        
+        plan_id = user[3]
+        plan_expiry = user[4]
+        current_bots = conn.execute("SELECT COUNT(*) FROM bots WHERE user_id=?", (user_id,)).fetchone()[0]
+
+        if plan_id == 0 or not plan_expiry:
+            return {
+                "plan_name": "No Plan",
+                "max_bots": 0,
+                "current_bots": current_bots,
+                "is_active": False,
+                "remaining_str": "Expired / Inactive",
+                "expiry": "N/A",
+                "plan_id": 0
+            }
+
+        now = datetime.now()
+        try:
+            expiry_dt = datetime.strptime(plan_expiry, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            expiry_dt = now
+
+        # Auto expire if past time
+        if now >= expiry_dt:
+            conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
+            conn.commit()
+            return {
+                "plan_name": "Plan Expired",
+                "max_bots": 0,
+                "current_bots": current_bots,
+                "is_active": False,
+                "remaining_str": "Expired",
+                "expiry": plan_expiry,
+                "plan_id": 0
+            }
+
+        diff = expiry_dt - now
+        days = diff.days
+        hours = diff.seconds // 3600
+        mins = (diff.seconds % 3600) // 60
+        remaining_str = f"{days} Days, {hours} Hours, {mins} Min remaining"
+
+        if plan_id == -1:
+            plan_name = "Free Trial"
+            max_bots = int(get_setting("trial_max_bots") or "1")
+        else:
+            p = conn.execute("SELECT name, max_bots FROM plans WHERE id=?", (plan_id,)).fetchone()
+            plan_name = p[0] if p else "Active Plan"
+            max_bots = p[1] if p else 1
+
+        return {
+            "plan_name": plan_name,
+            "max_bots": max_bots,
+            "current_bots": current_bots,
+            "is_active": True,
+            "remaining_str": remaining_str,
+            "expiry": plan_expiry,
+            "plan_id": plan_id
+        }
 
 # ─── FSM STATES ─────────────────────────────────────────────────────────────
 class UserStates(StatesGroup):
@@ -324,20 +398,12 @@ async def start_handler(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or "N/A"
     
-    with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        if not user:
-            conn.execute(
-                "INSERT INTO users (user_id, username, joined_at) VALUES (?, ?, ?)",
-                (user_id, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
-            conn.commit()
-        else:
-            if user[5] == 1:
-                return await message.answer(
-                    f"{CE('notice')} <b>Account Restricted!</b>\n\nYour profile has been prohibited from deploying or accessing server assets.",
-                    parse_mode="HTML"
-                )
+    user = get_or_create_user(user_id, username)
+    if user[5] == 1:
+        return await message.answer(
+            f"{CE('notice')} <b>Account Restricted!</b>\n\nYour profile has been prohibited from accessing hosting infrastructure.",
+            parse_mode="HTML"
+        )
 
     if not await check_all_fsub(user_id):
         return await message.answer(
@@ -347,27 +413,19 @@ async def start_handler(message: types.Message):
             parse_mode="HTML"
         )
 
-    with get_db() as conn:
-        u = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        plan_name = "No Plan"
-        if u[3] == -1:
-            plan_name = "Free Trial"
-        elif u[3] != 0:
-            p = conn.execute("SELECT name FROM plans WHERE id=?", (u[3],)).fetchone()
-            plan_name = p[0] if p else "Active Plan"
-            
-        bot_count = conn.execute("SELECT COUNT(*) FROM bots WHERE user_id=?", (user_id,)).fetchone()[0]
+    plan_info = get_user_plan_info(user_id)
+    balance = user[2]
 
     profile_text = (
-        f"{CE('crown')} <b>BABY CLOUD HOSTING ENGINE</b> {CE('fire')}\n"
+        f"{CE('crown')} <b>NEBULA CLOUD HOSTING ENGINE</b> {CE('fire')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{CE('trader')} <b>Holder:</b> <code>{message.from_user.full_name}</code>\n"
         f"{CE('link')} <b>User ID:</b> <code>{user_id}</code>\n"
         f"{CE('telegram')} <b>Username:</b> @{username}\n"
-        f"{CE('wallet')} <b>Balance:</b> <code>{u[2]:.2f} ৳</code>\n"
-        f"{CE('diamond')} <b>Current Plan:</b> <code>{plan_name}</code>\n"
-        f"{CE('date')} <b>Expiry:</b> <code>{u[4] or 'No Active Validity'}</code>\n"
-        f"{CE('power')} <b>Hosted Bots:</b> <code>{bot_count} Active Slot(s)</code>\n"
+        f"{CE('wallet')} <b>Balance:</b> <code>{balance:.2f} ৳</code>\n"
+        f"{CE('diamond')} <b>Active Plan:</b> <code>{plan_info['plan_name']}</code>\n"
+        f"{CE('date')} <b>Validity:</b> <code>{plan_info['remaining_str']}</code>\n"
+        f"{CE('power')} <b>Deployments:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']} Used</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{CE('speed')} <i>High-performance isolated Subprocess execution (Python & Node.js).</i>\n"
         f"<i>Select an option from the menu buttons below:</i>"
@@ -431,12 +489,12 @@ async def support_handler(message: types.Message):
 @dp.message(F.text.contains("Wallet & Balance"))
 async def wallet_handler(message: types.Message):
     user_id = message.from_user.id
-    u = get_user(user_id)
-    balance = u[2] if u else 0.0
+    user = get_or_create_user(user_id, message.from_user.username or "N/A")
+    balance = user[2]
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [ikb("Add Balance (Deposit)", callback_data="start_deposit", style="success", icon_id=EMOJIS["wallet"])],
-        [ikb("Buy Subscriptions", callback_data="view_plans", style="primary", icon_id=EMOJIS["diamond"])]
+        [ikb("Browse Subscriptions", callback_data="view_plans", style="primary", icon_id=EMOJIS["diamond"])]
     ])
     
     await message.answer(
@@ -448,24 +506,30 @@ async def wallet_handler(message: types.Message):
         parse_mode="HTML"
     )
 
-# ─── PLANS & SUBSCRIPTIONS ─────────────────────────────────────────────────
+# ─── PLANS & SUBSCRIPTIONS (ACCURATE REAL-TIME COUNT & VALIDITY) ───────────
 @dp.message(F.text.contains("Plans"))
 @dp.callback_query(F.data == "view_plans")
 async def plans_handler(event: types.Message | types.CallbackQuery):
     message = event if isinstance(event, types.Message) else event.message
     user_id = event.from_user.id
 
+    user = get_or_create_user(user_id, event.from_user.username or "N/A")
+    plan_info = get_user_plan_info(user_id)
+
     with get_db() as conn:
-        plans = conn.execute("SELECT * FROM plans").fetchall()
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        
+        plans = conn.execute("SELECT * FROM plans ORDER BY price ASC").fetchall()
+
     text = (
         f"{CE('diamond')} <b>CLOUD HOSTING SUBSCRIPTIONS</b> {CE('fire')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{CE('crown')} <b>Your Active Tier:</b> <code>{plan_info['plan_name']}</code>\n"
+        f"{CE('date')} <b>Remaining Validity:</b> <code>{plan_info['remaining_str']}</code>\n"
+        f"{CE('power')} <b>Deployment Slots:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']} Used</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     buttons = []
     
-    # Free Trial Tier
+    # 1. Free Trial Plan
     trial_enabled = get_setting("trial_enabled") == "1"
     trial_days = get_setting("trial_days") or "3"
     trial_max_bots = get_setting("trial_max_bots") or "1"
@@ -477,33 +541,36 @@ async def plans_handler(event: types.Message | types.CallbackQuery):
         text += (
             f"{CE('gift')} <b>Tier:</b> <code>Free Trial</code>\n"
             f"{CE('money')} <b>Price:</b> <code>0.00 ৳</code>\n"
-            f"{CE('date')} <b>Validity:</b> <code>{trial_days} Days</code>\n"
-            f"{CE('power')} <b>Limit:</b> <code>{trial_max_bots} Bot Slot(s)</code>\n"
+            f"{CE('date')} <b>Duration:</b> <code>{trial_days} Days</code>\n"
+            f"{CE('power')} <b>Quota:</b> <code>{trial_max_bots} Bot Slot(s)</code>\n"
             f"{CE('notice')} <b>Details:</b> <i>{trial_desc}</i>\n"
             f"{CE('trader')} <b>Claimed:</b> <code>{trial_claimed}/{trial_limit} Time(s)</code>\n"
             f"────────────────────────────\n"
         )
-        if user[3] == -1:
-            buttons.append([ikb("Free Trial Active", callback_data="plan_already_active", style="success", icon_id=EMOJIS["done"])])
+        if plan_info["is_active"] and plan_info["plan_id"] == -1:
+            buttons.append([ikb(f"Free Trial Active ({plan_info['remaining_str']})", callback_data="plan_already_active", style="success", icon_id=EMOJIS["done"])])
         elif trial_claimed >= trial_limit:
-            buttons.append([ikb("Free Trial Limit Reached", callback_data="trial_limit_reached", style="danger", icon_id=EMOJIS["close"])])
+            buttons.append([ikb("Free Trial Limit Exhausted", callback_data="trial_limit_reached", style="danger", icon_id=EMOJIS["close"])])
         else:
             buttons.append([ikb(f"Claim Free Trial ({trial_days} Days)", callback_data="claim_free_trial", style="success", icon_id=EMOJIS["gift"])])
 
-    # Paid Subscription Plans
+    # 2. Paid Subscription Plans
+    if not plans:
+        text += f"<i>No paid subscription tiers are currently available.</i>\n"
+
     for p in plans:
         text += (
             f"{CE('crown')} <b>Tier:</b> <code>{p[1]}</code>\n"
             f"{CE('money')} <b>Price:</b> <code>{p[2]:.2f} ৳</code>\n"
-            f"{CE('date')} <b>Validity:</b> <code>{p[3]} Days</code>\n"
-            f"{CE('power')} <b>Limit:</b> <code>{p[4]} Bot Slot(s)</code>\n"
+            f"{CE('date')} <b>Duration:</b> <code>{p[3]} Days</code>\n"
+            f"{CE('power')} <b>Quota:</b> <code>{p[4]} Bot Slot(s)</code>\n"
             f"{CE('notice')} <b>Details:</b> <i>{p[5]}</i>\n"
             f"────────────────────────────\n"
         )
-        if user[3] == p[0]:
-            buttons.append([ikb(f"{p[1]} Active", callback_data="plan_already_active", style="success", icon_id=EMOJIS["done"])])
+        if plan_info["is_active"] and plan_info["plan_id"] == p[0]:
+            buttons.append([ikb(f"{p[1]} Active ({plan_info['remaining_str']})", callback_data="plan_already_active", style="success", icon_id=EMOJIS["done"])])
         else:
-            buttons.append([ikb(f"Purchase {p[1]} ({p[2]:.2f} ৳)", callback_data=f"buyplan_{p[0]}", style="primary", icon_id=EMOJIS["arrow_right"])])
+            buttons.append([ikb(f"Purchase {p[1]} - {p[2]:.2f} ৳ ({p[3]} Days)", callback_data=f"buyplan_{p[0]}", style="primary", icon_id=EMOJIS["arrow_right"])])
         
     buttons.append([ikb("Add Balance to Wallet", callback_data="start_deposit", style="success", icon_id=EMOJIS["wallet"])])
     
@@ -515,7 +582,7 @@ async def plans_handler(event: types.Message | types.CallbackQuery):
 
 @dp.callback_query(F.data == "plan_already_active")
 async def plan_active_alert(callback: types.CallbackQuery):
-    await callback.answer("⚠️ This plan is already active on your account! You can renew once it expires.", show_alert=True)
+    await callback.answer("⚠️ This subscription tier is already active on your account! Renew when it expires.", show_alert=True)
 
 @dp.callback_query(F.data == "trial_limit_reached")
 async def trial_limit_alert(callback: types.CallbackQuery):
@@ -524,18 +591,20 @@ async def trial_limit_alert(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "claim_free_trial")
 async def claim_trial_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
+    user = get_or_create_user(user_id, callback.from_user.username or "N/A")
+    plan_info = get_user_plan_info(user_id)
+
+    trial_limit = int(get_setting("trial_limit") or "1")
+    trial_claimed = user[7] if len(user) > 7 else 0
+    trial_days = int(get_setting("trial_days") or "3")
+
+    if plan_info["is_active"] and plan_info["plan_id"] == -1:
+        return await callback.answer("⚠️ Free trial is already active on your account!", show_alert=True)
+    if trial_claimed >= trial_limit:
+        return await callback.answer("❌ You have reached your free trial limit!", show_alert=True)
+
+    expiry = (datetime.now() + timedelta(days=trial_days)).strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        trial_limit = int(get_setting("trial_limit") or "1")
-        trial_claimed = user[7] if len(user) > 7 else 0
-        trial_days = int(get_setting("trial_days") or "3")
-
-        if user[3] == -1:
-            return await callback.answer("⚠️ Free trial is already active on your account!", show_alert=True)
-        if trial_claimed >= trial_limit:
-            return await callback.answer("❌ You have reached your free trial limit!", show_alert=True)
-
-        expiry = (datetime.now() + timedelta(days=trial_days)).strftime("%Y-%m-%d %H:%M:%S")
         conn.execute(
             "UPDATE users SET plan_id=-1, plan_expiry=?, trial_claimed=trial_claimed+1 WHERE user_id=?",
             (expiry, user_id)
@@ -544,7 +613,7 @@ async def claim_trial_callback(callback: types.CallbackQuery):
 
     await callback.message.edit_text(
         f"{CE('done')} <b>Free Trial Activated!</b>\n\n"
-        f"{CE('date')} <b>Validity Period:</b> <code>{expiry}</code>\n"
+        f"{CE('date')} <b>Validity:</b> <code>{trial_days} Days</code> (Expires: <code>{expiry}</code>)\n"
         f"{CE('power')} <b>Allowed Bots:</b> <code>{get_setting('trial_max_bots') or '1'}</code>\n\n"
         f"You can now proceed to <b>Deploy Bot</b> from the main menu.",
         parse_mode="HTML"
@@ -566,7 +635,8 @@ async def process_buy_plan(callback: types.CallbackQuery):
         if user[2] < cost:
             return await callback.answer(f"❌ Insufficient Balance! You need {cost:.2f} ৳. Please deposit first.", show_alert=True)
 
-        if user[3] == plan_id:
+        plan_info = get_user_plan_info(user_id)
+        if plan_info["is_active"] and plan_info["plan_id"] == plan_id:
             return await callback.answer("⚠️ You already have this plan active!", show_alert=True)
             
         new_balance = user[2] - cost
@@ -578,7 +648,7 @@ async def process_buy_plan(callback: types.CallbackQuery):
         f"{CE('done')} <b>Subscription Activated!</b>\n\n"
         f"{CE('crown')} <b>Tier:</b> <code>{plan[1]}</code>\n"
         f"{CE('money')} <b>Paid:</b> <code>{cost:.2f} ৳</code>\n"
-        f"{CE('date')} <b>Valid Until:</b> <code>{expiry}</code>\n"
+        f"{CE('date')} <b>Valid For:</b> <code>{plan[3]} Days</code> (Expires: <code>{expiry}</code>)\n"
         f"{CE('power')} <b>Deployment Slots:</b> <code>{plan[4]} Bot(s)</code>\n\n"
         f"<i>Your server slots have been updated.</i>",
         parse_mode="HTML"
@@ -678,7 +748,6 @@ async def process_deposit_photo(message: types.Message, state: FSMContext):
         conn.commit()
         req_id = cur.lastrowid
 
-    # Admin review keyboard
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             ikb("Approve", callback_data=f"depapp_{req_id}", style="success", icon_id=EMOJIS["done"]),
@@ -711,7 +780,6 @@ async def process_deposit_photo(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# Admin Approval Handlers
 @dp.callback_query(F.data.startswith("depapp_"))
 async def admin_approve_deposit(callback: types.CallbackQuery):
     req_id = int(callback.data.split("_")[1])
@@ -767,42 +835,38 @@ async def admin_reject_deposit(callback: types.CallbackQuery):
         pass
     await callback.answer("Deposit Rejected!", show_alert=True)
 
-# ─── UPLOAD & BOT HOSTING ENGINE ──────────────────────────────────────────
+# ─── UPLOAD & BOT HOSTING ENGINE (STRICT PLAN LIMIT ENFORCEMENT) ───────────
 @dp.message(F.text.contains("Deploy Bot"))
 async def upload_prompt(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    
-    with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        if not user or user[3] == 0:
-            return await message.answer(
-                f"{CE('notice')} <b>No Subscription Found!</b>\n\n"
-                f"You require an active hosting package or Free Trial to launch bots. Check out <b>Plans</b>.",
-                parse_mode="HTML"
-            )
-            
-        if user[3] == -1:
-            max_allowed = int(get_setting("trial_max_bots") or "1")
-        else:
-            plan = conn.execute("SELECT * FROM plans WHERE id=?", (user[3],)).fetchone()
-            max_allowed = plan[4] if plan else 0
-            
-        current_bots = conn.execute("SELECT COUNT(*) FROM bots WHERE user_id=?", (user_id,)).fetchone()[0]
+    get_or_create_user(user_id, message.from_user.username or "N/A")
+    plan_info = get_user_plan_info(user_id)
+
+    if not plan_info or not plan_info["is_active"]:
+        return await message.answer(
+            f"{CE('notice')} <b>No Active Subscription Found!</b>\n\n"
+            f"You require an active hosting package or Free Trial to launch bots.\n"
+            f"Check out <b>Plans</b> from the main menu to claim a trial or purchase a plan.",
+            parse_mode="HTML"
+        )
         
-        if current_bots >= max_allowed:
-            return await message.answer(
-                f"{CE('close')} <b>Container Slot Quota Full!</b>\n\n"
-                f"Your active tier allows a maximum of <code>{max_allowed}</code> bot deployment(s).",
-                parse_mode="HTML"
-            )
+    if plan_info["current_bots"] >= plan_info["max_bots"]:
+        return await message.answer(
+            f"{CE('close')} <b>Container Quota Full!</b>\n\n"
+            f"Your active tier allows a maximum of <code>{plan_info['max_bots']}</code> bot deployment(s).\n"
+            f"Currently deployed: <code>{plan_info['current_bots']}/{plan_info['max_bots']}</code>.\n\n"
+            f"Please upgrade your plan or delete unused instances via <b>My Bots</b>.",
+            parse_mode="HTML"
+        )
 
     await message.answer(
         f"{CE('up')} <b>DEPLOY SOURCE ARCHIVE</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Please send your source code file document:\n\n"
+        f"Active Tier: <code>{plan_info['plan_name']}</code> ({plan_info['current_bots']}/{plan_info['max_bots']} Slots Used)\n\n"
+        f"Please send your source code file document:\n"
         f"• <b>Single Source:</b> <code>.py</code> or <code>.js</code>\n"
-        f"• <b>Project Archive:</b> <code>.zip</code> (include <code>main.py</code> or <code>index.js</code> with <code>requirements.txt</code>)\n\n"
-        f"{CE('loading')} <i>Awaiting file attachment...</i>",
+        f"• <b>Project Archive:</b> <code>.zip</code> (must include <code>main.py</code> or <code>index.js</code>)\n\n"
+        f"{CE('loading')} <i>Awaiting file document...</i>",
         reply_markup=cancel_btn(),
         parse_mode="HTML"
     )
@@ -876,7 +940,7 @@ async def process_file_upload(message: types.Message, state: FSMContext):
         await status_msg.edit_text(f"{CE('loading')} <i>Resolving & Installing requirements.txt packages...</i>", parse_mode="HTML")
         install_proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if install_proc.returncode != 0:
-            err_log = install_proc.stderr.decode('utf-8')[:300]
+            err_log = install_proc.stderr.decode('utf-8', errors='replace')[:300]
             await message.answer(f"{CE('notice')} <b>Dependencies Installation Notice:</b>\n<code>{err_log}</code>", parse_mode="HTML")
 
     with get_db() as conn:
@@ -898,7 +962,7 @@ async def process_file_upload(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# ─── MY BOTS MANAGEMENT ────────────────────────────────────────────────────
+# ─── MY BOTS MANAGEMENT & CRASH-PROOF LOGS ─────────────────────────────────
 @dp.message(F.text.contains("My Bots"))
 async def my_bots_list(message: types.Message):
     user_id = message.from_user.id
@@ -979,7 +1043,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
             return await callback.answer("⚠️ Bot process is already active!", show_alert=True)
             
         cmd = [sys.executable, entry] if btype == "python" else ["node", entry]
-        log_fp = open(log_file, "a")
+        log_fp = open(log_file, "a", encoding="utf-8")
         proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
         ACTIVE_PROCESSES[bot_id] = proc
         
@@ -1007,7 +1071,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
             del ACTIVE_PROCESSES[bot_id]
             
         cmd = [sys.executable, entry] if btype == "python" else ["node", entry]
-        log_fp = open(log_file, "a")
+        log_fp = open(log_file, "a", encoding="utf-8")
         proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
         ACTIVE_PROCESSES[bot_id] = proc
         
@@ -1021,12 +1085,17 @@ async def execute_bot_action(callback: types.CallbackQuery):
         if not os.path.exists(log_file):
             return await callback.answer("No output log has been generated yet.", show_alert=True)
             
-        with open(log_file, "r") as f:
-            lines = f.readlines()
-            tail = "".join(lines[-20:]) or "Output log is clean and empty."
-            
+        try:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+                tail = "".join(lines[-25:]) or "Output log is clean and empty."
+        except Exception as e:
+            tail = f"Error reading log file: {e}"
+
+        # HTML Escape to prevent crash when user bot outputs tags
+        tail_escaped = html.escape(tail)
         return await callback.message.answer(
-            f"{CE('logs')} <b>STDOUT/STDERR TERMINAL OUTPUT (#{bot_id}):</b>\n<pre>{tail}</pre>",
+            f"{CE('logs')} <b>TERMINAL OUTPUT (#{bot_id}):</b>\n<pre>{tail_escaped}</pre>",
             parse_mode="HTML"
         )
 
@@ -1062,7 +1131,7 @@ async def execute_bot_action(callback: types.CallbackQuery):
 
     await bot_controls(callback)
 
-# ─── ADMIN PANEL ───────────────────────────────────────────────────────────
+# ─── ADMIN PANEL & COMPREHENSIVE PLAN MANAGER ──────────────────────────────
 @dp.message(F.text.contains("Admin Panel"))
 async def admin_panel_root(message: types.Message):
     if not is_admin(message.from_user.id):
@@ -1309,14 +1378,16 @@ async def adm_scan_display(message: types.Message, state: FSMContext):
     if not user:
         return await message.answer(f"{CE('close')} User not registered in database.")
 
+    plan_info = get_user_plan_info(uid)
     status = "BANNED" if user[5] == 1 else "ACTIVE"
     text = (
         f"{CE('trader')} <b>PROFILE DOSSIER:</b> <code>{user[0]}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{CE('telegram')} <b>Username:</b> @{user[1]}\n"
         f"{CE('wallet')} <b>Balance:</b> <code>{user[2]:.2f} ৳</code>\n"
-        f"{CE('diamond')} <b>Plan ID:</b> <code>{user[3]}</code>\n"
-        f"{CE('date')} <b>Expiry:</b> <code>{user[4] or 'None'}</code>\n"
+        f"{CE('diamond')} <b>Plan:</b> <code>{plan_info['plan_name']}</code>\n"
+        f"{CE('date')} <b>Expiry:</b> <code>{plan_info['remaining_str']}</code>\n"
+        f"{CE('power')} <b>Slots Used:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']}</code>\n"
         f"{CE('shield')} <b>Status:</b> {status}\n"
         f"{CE('date')} <b>Joined:</b> <code>{user[6]}</code>"
     )
@@ -1332,7 +1403,7 @@ async def adm_scan_display(message: types.Message, state: FSMContext):
 async def adm_toggleban(callback: types.CallbackQuery):
     uid = int(callback.data.split("_")[2])
     with get_db() as conn:
-        cur_ban = conn.execute("SELECT is_banned FROM users WHERE user_id=?", (uid,)).fetchone()[0]
+        cur_ban = conn.execute("SELECT is_banned FROM users WHERE user_id=?", (uid,)) .fetchone()[0]
         new_ban = 0 if cur_ban == 1 else 1
         conn.execute("UPDATE users SET is_banned=? WHERE user_id=?", (new_ban, uid))
         conn.commit()
@@ -1379,14 +1450,31 @@ async def adm_adjust_balance_proc(message: types.Message, state: FSMContext):
     except Exception:
         pass
 
-# 5. Manage Paid Plans
+# 5. Manage Paid Plans (Add & Delete Plans)
 @dp.callback_query(F.data == "adm_manage_plans")
 async def adm_manage_plans(callback: types.CallbackQuery, state: FSMContext):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])],
-        [ikb("Back to Admin Panel", callback_data="back_admin_root", style="danger", icon_id=EMOJIS["close"])]
-    ])
-    await callback.message.edit_text(f"{CE('diamond')} <b>SUBSCRIPTION TIER CONFIGURATION</b>", reply_markup=keyboard, parse_mode="HTML")
+    with get_db() as conn:
+        plans = conn.execute("SELECT * FROM plans ORDER BY price ASC").fetchall()
+
+    text = f"{CE('diamond')} <b>PAID SUBSCRIPTION TIERS</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    buttons = []
+    for p in plans:
+        text += f"• <b>{p[1]}</b> | <code>{p[2]:.2f} ৳</code> | {p[3]} Days | Max {p[4]} Bots\n"
+        buttons.append([ikb(f"🗑 Delete '{p[1]}'", callback_data=f"delplan_{p[0]}", style="danger", icon_id=EMOJIS["delete"])])
+
+    buttons.append([ikb("➕ Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])])
+    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])])
+    
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("delplan_"))
+async def adm_del_plan_call(callback: types.CallbackQuery, state: FSMContext):
+    plan_id = int(callback.data.split("_")[1])
+    with get_db() as conn:
+        conn.execute("DELETE FROM plans WHERE id=?", (plan_id,))
+        conn.commit()
+    await callback.answer("Plan removed successfully!", show_alert=True)
+    await adm_manage_plans(callback, state)
 
 @dp.callback_query(F.data == "adm_add_plan_btn")
 async def adm_add_plan_prompt(callback: types.CallbackQuery, state: FSMContext):
@@ -1419,7 +1507,11 @@ async def adm_save_plan(message: types.Message, state: FSMContext):
         )
         conn.commit()
         
-    await message.answer(f"{CE('done')} <b>Plan '{name}' successfully created!</b>", parse_mode="HTML")
+    await message.answer(
+        f"{CE('done')} <b>Plan '{name}' successfully created!</b>\n"
+        f"Price: <code>{price:.2f} ৳</code> | Days: <code>{days}</code> | Slots: <code>{max_bots}</code>",
+        parse_mode="HTML"
+    )
 
 # 6. Payment Gateways Update
 @dp.callback_query(F.data == "adm_payments")
@@ -1600,9 +1692,9 @@ async def background_scheduler():
 # ─── APPLICATION RUNNER ───────────────────────────────────────────────────
 async def main():
     print("==============================================")
-    print(" NEBULA CLOUD HOST ENGINE - ACTIVE ")
+    print(" NEBULA CLOUD HOST ENGINE - ONLINE ")
     print(" Primary Admin ID: 2014144404")
-    print(" Database: nebula_cloud_v3.db ")
+    print(" Database: nebula_cloud_v4.db ")
     print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
     print("==============================================")
     asyncio.create_task(background_scheduler())
