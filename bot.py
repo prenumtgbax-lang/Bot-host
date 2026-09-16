@@ -105,7 +105,7 @@ def CE(key: str, fallback: str = "✨") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
-BOT_TOKEN = "8996063667:AAH3J8omlagr0kgER8lR2NeE-KXKyqtoL5M"
+BOT_TOKEN = "8675366388:AAHOUv_JzvBTiWCSyieozvl7-CQ9cABhpOI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
 DB_FILE = "nebula_cloud_v3.db"  # নতুন ফ্রেশ ডাটাবেজ নাম
