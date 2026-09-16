@@ -4,10 +4,12 @@ Target Admin: 2014144404
 Default Support: @YourDomains
 Language: English (Styled UI / Custom Emojis & Button Colors)
 Framework: Aiogram 3.x + SQLite3 + Subprocess Manager
+Database: nebulahost.db
 """
 
 import os
 import sys
+import ast
 import time
 import html
 import zipfile
@@ -17,7 +19,7 @@ import sqlite3
 import logging
 import subprocess
 from datetime import datetime, timedelta
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Set
 
 import psutil
 from aiogram import Bot, Dispatcher, F, types
@@ -118,7 +120,7 @@ def CE(key: str, fallback: str = "✨") -> str:
 BOT_TOKEN = "8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "babyhost.db"
+DB_FILE = "nebulahost.db"
 
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
@@ -298,12 +300,9 @@ def get_user_plan_info(user_id: int):
 
         if now >= expiry_dt:
             conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
-            
-            # Stop user bots upon expiry
             bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (user_id,)).fetchall()
             for (b_id,) in bots:
                 stop_bot_instance(b_id)
-                
             conn.commit()
             return {
                 "plan_name": "Plan Expired",
@@ -339,6 +338,83 @@ def get_user_plan_info(user_id: int):
             "plan_id": plan_id
         }
 
+# ─── AUTOMATIC DEPENDENCY DETECTOR (FOR SINGLE .PY FILES) ───────────────────
+# Built-in modules to ignore during scan
+STDLIB_MODULES: Set[str] = set(sys.builtin_module_names) | {
+    "os", "sys", "time", "json", "math", "re", "random", "datetime", "asyncio",
+    "subprocess", "sqlite3", "html", "shutil", "logging", "typing", "pathlib",
+    "urllib", "hashlib", "socket", "threading", "copy", "collections", "itertools",
+    "functools", "traceback", "inspect", "string", "struct", "pickle", "base64",
+    "io", "tempfile", "glob", "shlex", "queue", "signal", "platform", "uuid",
+    "csv", "xml", "email", "http", "unittest", "contextlib", "ctypes", "zipfile"
+}
+
+# Module import to pip package name translation map
+PIP_PACKAGE_MAP = {
+    "telebot": "pyTelegramBotAPI",
+    "telegram": "python-telegram-bot",
+    "bs4": "beautifulsoup4",
+    "PIL": "Pillow",
+    "cv2": "opencv-python",
+    "dotenv": "python-dotenv",
+    "yaml": "PyYAML",
+    "fitz": "PyMuPDF",
+    "psutil": "psutil",
+    "aiohttp": "aiohttp",
+    "requests": "requests",
+    "pyrogram": "pyrogram",
+    "tgcrypto": "tgcrypto"
+}
+
+def auto_detect_and_install_deps(py_file_path: str, bot_dir: str) -> str:
+    """Scans python AST for imported libraries and installs missing requirements automatically."""
+    found_modules = set()
+    
+    try:
+        with open(py_file_path, "r", encoding="utf-8", errors="ignore") as f:
+            tree = ast.parse(f.read(), filename=py_file_path)
+            
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top_name = alias.name.split('.')[0]
+                    found_modules.add(top_name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    top_name = node.module.split('.')[0]
+                    found_modules.add(top_name)
+    except Exception as e:
+        logging.warning(f"AST parsing notice: {e}")
+
+    # Filter out standard libraries
+    third_party = [m for m in found_modules if m and m not in STDLIB_MODULES]
+    if not third_party:
+        return "No external libraries detected"
+
+    packages_to_install = []
+    for mod in third_party:
+        pkg_name = PIP_PACKAGE_MAP.get(mod, mod)
+        packages_to_install.append(pkg_name)
+
+    # Generate requirements.txt
+    req_path = os.path.join(bot_dir, "requirements.txt")
+    with open(req_path, "w", encoding="utf-8") as rf:
+        rf.write("\n".join(packages_to_install))
+
+    # Install packages
+    proc = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", req_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=180
+    )
+    
+    if proc.returncode == 0:
+        return f"✅ Auto-Installed ({', '.join(packages_to_install)})"
+    else:
+        err_out = proc.stderr.decode('utf-8', errors='ignore')[:200]
+        return f"⚠️ Warning during install:\n<code>{html.escape(err_out)}</code>"
+
 # ─── PROCESS SUPERVISOR HELPER FUNCTIONS ───────────────────────────────────
 def kill_process_tree(proc: subprocess.Popen):
     """Safely kills the process and all of its spawned children."""
@@ -360,7 +436,6 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
     """Starts the bot subprocess and verifies initial execution health."""
     log_file = os.path.join(folder, "output.log")
     
-    # Kill any existing instance
     if bot_id in ACTIVE_PROCESSES:
         kill_process_tree(ACTIVE_PROCESSES[bot_id])
         del ACTIVE_PROCESSES[bot_id]
@@ -374,7 +449,6 @@ def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tup
     except Exception as e:
         return False, f"Failed to execute command: {str(e)}"
 
-    # Health check on launch
     time.sleep(1.2)
     poll_res = proc.poll()
     if poll_res is not None:
@@ -857,9 +931,9 @@ async def process_deposit_photo(message: types.Message, state: FSMContext):
     photo_file_id = message.photo[-1].file_id
     user_id = message.from_user.id
     username = message.from_user.username or "N/A"
-    method = data['method']
-    amount = data['amount']
-    trx_id = data['trx_id']
+    method = data.get('method', 'Manual')
+    amount = data.get('amount', 0.0)
+    trx_id = data.get('trx_id', 'N/A')
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with get_db() as conn:
@@ -958,7 +1032,7 @@ async def admin_reject_deposit(callback: types.CallbackQuery):
         pass
     await callback.answer("Deposit Rejected!", show_alert=True)
 
-# ─── UPLOAD & BOT HOSTING ENGINE (STRICT PLAN LIMIT ENFORCEMENT) ───────────
+# ─── UPLOAD & BOT HOSTING ENGINE (AUTO PIP FOR SINGLE .PY FILES) ───────────
 @dp.message(F.text.contains("Deploy Bot"))
 async def upload_prompt(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -983,12 +1057,13 @@ async def upload_prompt(message: types.Message, state: FSMContext):
         )
 
     await message.answer(
-        f"{CE('up')} <b>DEPLOY SOURCE ARCHIVE</b>\n"
+        f"{CE('up')} <b>DEPLOY BOT INSTANCE</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Active Tier: <code>{plan_info['plan_name']}</code> ({plan_info['current_bots']}/{plan_info['max_bots']} Slots Used)\n\n"
         f"Please send your source code file document:\n"
-        f"• <b>Single Source:</b> <code>.py</code> or <code>.js</code>\n"
-        f"• <b>Project Archive:</b> <code>.zip</code> (must include <code>main.py</code> or <code>index.js</code>)\n\n"
+        f"• <b>Single Python Source:</b> <code>.py</code> <i>(Requirements will be auto-scanned & installed!)</i>\n"
+        f"• <b>Single Node Source:</b> <code>.js</code>\n"
+        f"• <b>Full Project Archive:</b> <code>.zip</code> <i>(containing main.py/index.js)</i>\n\n"
         f"{CE('loading')} <i>Awaiting file document...</i>",
         reply_markup=cancel_btn(),
         parse_mode="HTML"
@@ -998,7 +1073,7 @@ async def upload_prompt(message: types.Message, state: FSMContext):
 @dp.message(UserStates.uploading_bot, F.document)
 async def process_file_upload(message: types.Message, state: FSMContext):
     doc = message.document
-    filename = doc.file_name or "archive.zip"
+    filename = doc.file_name or "bot_code.py"
     ext = os.path.splitext(filename)[1].lower()
     user_id = message.from_user.id
     
@@ -1022,8 +1097,9 @@ async def process_file_upload(message: types.Message, state: FSMContext):
     
     entry_file = filename
     bot_type = "python" if ext == ".py" else ("nodejs" if ext == ".js" else "unknown")
+    pip_status_note = "N/A"
     
-    # ── Step 2: Extraction & Verification ──
+    # ── Step 2: Extraction or Single .PY Auto-Dependency Inspection ──
     if ext == ".zip":
         await status_msg.edit_text(f"{CE('loading')} <i>Step 2/4: Unpacking ZIP and validating structure...</i>", parse_mode="HTML")
         try:
@@ -1060,17 +1136,25 @@ async def process_file_upload(message: types.Message, state: FSMContext):
                     parse_mode="HTML"
                 )
 
-    # ── Step 3: Dependencies Resolution ──
-    req_file = os.path.join(bot_dir, "requirements.txt")
-    pip_status_note = "None (No requirements.txt found)"
-    if os.path.exists(req_file):
-        await status_msg.edit_text(f"{CE('loading')} <i>Step 3/4: Resolving & Installing packages from requirements.txt...</i>", parse_mode="HTML")
-        install_proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if install_proc.returncode == 0:
-            pip_status_note = "✅ Installed Successfully"
+        req_file = os.path.join(bot_dir, "requirements.txt")
+        if os.path.exists(req_file):
+            await status_msg.edit_text(f"{CE('loading')} <i>Step 3/4: Resolving & Installing packages from requirements.txt...</i>", parse_mode="HTML")
+            install_proc = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if install_proc.returncode == 0:
+                pip_status_note = "✅ Installed Successfully from requirements.txt"
+            else:
+                err_log = install_proc.stderr.decode('utf-8', errors='replace')[:250]
+                pip_status_note = f"⚠️ Warning during install:\n<code>{html.escape(err_log)}</code>"
         else:
-            err_log = install_proc.stderr.decode('utf-8', errors='replace')[:250]
-            pip_status_note = f"⚠️ Warning during install:\n<code>{html.escape(err_log)}</code>"
+            # If ZIP has a python file but no requirements.txt, auto-scan the entrypoint!
+            if bot_type == "python":
+                await status_msg.edit_text(f"{CE('loading')} <i>Step 3/4: Scanning & Auto-installing imported modules...</i>", parse_mode="HTML")
+                pip_status_note = auto_detect_and_install_deps(os.path.join(bot_dir, entry_file), bot_dir)
+
+    elif ext == ".py":
+        # ── SINGLE .PY AUTO DEPENDENCY SCAN & INSTALLATION ──
+        await status_msg.edit_text(f"{CE('loading')} <i>Step 2/4: Analyzing code imports & generating requirements...</i>", parse_mode="HTML")
+        pip_status_note = auto_detect_and_install_deps(file_path, bot_dir)
 
     # ── Step 4: Syntax Pre-flight Check ──
     syntax_status_note = "N/A"
@@ -1369,6 +1453,8 @@ async def add_chan_step1(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.add_channel_link)
 async def add_chan_step2(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     link = message.text.strip()
     await state.update_data(chan_link=link)
     await message.answer(
@@ -1382,10 +1468,12 @@ async def add_chan_step2(message: types.Message, state: FSMContext):
 
 @dp.message(AdminStates.add_channel_id)
 async def add_chan_step3(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     chat_id = message.text.strip()
     data = await state.get_data()
     await state.clear()
-    link = data['chan_link']
+    link = data.get('chan_link', '')
 
     title = link.split("/")[-1].replace("@", "")
     try:
@@ -1448,6 +1536,8 @@ async def edit_t_days(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.edit_trial_days)
 async def save_t_days(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     set_setting("trial_days", message.text.strip())
     await message.answer(f"{CE('done')} Trial duration set to <b>{message.text.strip()} Days</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
@@ -1459,6 +1549,8 @@ async def edit_t_bots(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.edit_trial_bots)
 async def save_t_bots(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     set_setting("trial_max_bots", message.text.strip())
     await message.answer(f"{CE('done')} Trial bot slot limit set to <b>{message.text.strip()}</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
@@ -1470,6 +1562,8 @@ async def edit_t_limit(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.edit_trial_limit)
 async def save_t_limit(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     set_setting("trial_limit", message.text.strip())
     await message.answer(f"{CE('done')} Maximum claim limit updated to <b>{message.text.strip()} time(s)</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
@@ -1523,6 +1617,8 @@ async def adm_scan_prompt(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.scanning_user)
 async def adm_scan_display(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     try:
         uid = int(message.text.strip())
@@ -1581,8 +1677,10 @@ async def adm_adjust_prompt(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.adjust_balance)
 async def adm_adjust_balance_proc(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     data = await state.get_data()
-    uid = int(data['target_user'])
+    uid = int(data.get('target_user', 0))
     await state.clear()
     
     try:
@@ -1620,7 +1718,7 @@ async def adm_manage_plans(callback: types.CallbackQuery, state: FSMContext):
         buttons.append([ikb(f"Delete '{p[1]}'", callback_data=f"delplan_{p[0]}", style="danger", icon_id=EMOJIS["delete"])])
 
     buttons.append([ikb("Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])])
-    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])] )
+    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])])
     
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
@@ -1646,6 +1744,8 @@ async def adm_add_plan_prompt(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.add_plan)
 async def adm_save_plan(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     try:
         parts = [p.strip() for p in message.text.split("|")]
@@ -1685,6 +1785,8 @@ async def adm_payments_menu(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.update_payment)
 async def adm_save_payment(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     parts = message.text.split(" ", 1)
     if len(parts) != 2:
@@ -1706,6 +1808,8 @@ async def adm_broadcast_prompt(callback: types.CallbackQuery, state: FSMContext)
 
 @dp.message(AdminStates.broadcast_msg)
 async def adm_broadcast_execute(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     text = message.text
     with get_db() as conn:
@@ -1752,6 +1856,8 @@ async def add_admin_step(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.add_admin)
 async def save_admin(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     try:
         aid = int(message.text.strip())
@@ -1769,6 +1875,8 @@ async def remove_admin_step(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.remove_admin)
 async def delete_admin(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     try:
         aid = int(message.text.strip())
@@ -1789,6 +1897,8 @@ async def adm_support_prompt(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.update_support)
 async def adm_save_support(message: types.Message, state: FSMContext):
+    if await check_menu_button_escape(message, state):
+        return
     await state.clear()
     h = message.text.strip()
     set_setting("support_user", h)
@@ -1847,9 +1957,10 @@ async def background_scheduler():
 async def main():
     print("==============================================")
     print(" NEBULA CLOUD HOST ENGINE - ACTIVE ")
-    print(" Primary Admin ID: 2014144404")
-    print(" Database: babyhost.db ")
+    print(" Primary Admin ID: 2014144404 ")
+    print(" Database: nebulahost.db ")
     print(" Support: @YourDomains ")
+    print(" Auto-Pip Scanner: Enabled ")
     print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
     print("==============================================")
     asyncio.create_task(background_scheduler())
