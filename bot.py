@@ -119,7 +119,7 @@ def CE(key: str, fallback: str = "✨") -> str:
 BOT_TOKEN = "8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI"
 PRIMARY_ADMIN = 2014144404
 BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "nebulahost.db"
+DB_FILE = "nebulahost1.db"
 
 os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
