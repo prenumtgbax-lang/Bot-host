@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║              NEBULA CLOUD HOSTING BOT — PRODUCTION CRASH-PROOF            ║
+║              NEBULA CLOUD HOSTING BOT — CRASH-PROOF PRODUCTION            ║
 ║                                                                           ║
 ║  • Target Admin ID: 2014144404                                            ║
 ║  • Support: @YourDomains                                                  ║
 ║  • Token: 8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU                 ║
-║  • 409 Conflict & PEP 668 Auto-Recovery (Zero Deploy Crash)              ║
-║  • Gateway: Binance Only (Pay ID & USDT)                                  ║
-║  • Auto Admin File Dispatch & 1-Click Launch Approval                     ║
-║  • Full Bot Management: Start/Stop/Restart/Delete/Download ZIP            ║
-║  • Balance Modifier (+/-) & Multi-Tier Dynamic Plan Manager               ║
-║  • Referral Commission & Bonus Engine                                     ║
-║  • Compliant Custom Emojis (No ENTITY_TEXT_INVALID)                       ║
+║  • Render Web Service Port Binding & Health Check Protected               ║
+║  • Auto-Recovery from 409 Conflict & PEP 668 Package Failures            ║
+║  • Gateways: Binance Only (Pay ID & USDT Network)                         ║
+║  • Auto Admin Forwarding & 1-Click Launch Approval                        ║
+║  • Full Bot Management: Start/Stop/Restart/Delete/Download Backup         ║
+║  • User Balance Modifier (+/-) & Dynamic Plan Manager                     ║
+║  • Referral Commission & Bonus Engine Integrated                          ║
+║  • 100% Compliant Custom Emojis (No ENTITY_TEXT_INVALID)                  ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -41,29 +42,25 @@ import psutil
 import telebot
 from telebot import types
 
-# ── KEEP-ALIVE SERVER (FOR RENDER / KOYEB / PAAS) ───────────────────────────
-app = Flask("")
+# ── KEEP-ALIVE SERVER (CRITICAL FOR RENDER HEALTH CHECKS) ──────────────────
+app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Nebula Cloud Hosting Engine Active & Healthy"
+    return "Nebula Cloud Hosting System is Live & Healthy", 200
 
 @app.route("/health")
 def health():
     return "OK", 200
 
-def run_flask():
+def run_flask_server():
     try:
+        # Render passes $PORT dynamically (usually 10000)
         port = int(os.environ.get("PORT", 8080))
+        print(f"[+] Binding Web Server on 0.0.0.0:{port}...")
         app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
     except Exception as e:
-        print(f"[!] Web server binding error: {e}")
-
-def keep_alive():
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-    print("[+] Background Keep-Alive Server Online.")
+        print(f"[!] Flask server binding warning: {e}")
 
 # ── CONFIGURATION & CREDENTIALS ─────────────────────────────────────────────
 TOKEN = "8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU"
@@ -107,7 +104,7 @@ os.makedirs(BACKUPS_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN)
 
-# ── TELEGRAM CUSTOM EMOJIS (ID + COMPLIANT FALLBACK EMOJI) ─────────────────
+# ── TELEGRAM CUSTOM EMOJIS (ID + STRICT COMPLIANT FALLBACK EMOJI) ──────────
 EMOJIS_DATA = {
     "wallet": ("6073556477824472025", "💳"),
     "balance": ("6073556477824472025", "💳"),
@@ -148,7 +145,7 @@ EMOJIS_DATA = {
 }
 
 def CE(key: str) -> str:
-    """Compliant custom Telegram emoji tag wrapping valid unicode character."""
+    """Wraps single valid unicode character to prevent Telegram ENTITY_TEXT_INVALID error."""
     emoji_id, fallback = EMOJIS_DATA.get(key, ("6314480331831385997", "✨"))
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
@@ -474,7 +471,6 @@ def install_system_package(pkg_input):
         if res.returncode == 0:
             return True, f"Package <code>{pkg_name}</code> installed successfully."
         else:
-            # Fallback retry with --user
             fallback_cmd = [sys.executable, "-m", "pip", "install", "--user", pkg_name]
             res_fb = subprocess.run(fallback_cmd, capture_output=True, text=True, timeout=180)
             if res_fb.returncode == 0:
@@ -1430,40 +1426,48 @@ def expiry_cron_loop():
         except Exception: pass
         time.sleep(3600)
 
-atexit.register(lambda: [kill_process_tree(p) for p in bot_scripts.values()])
-threading.Thread(target=expiry_cron_loop, daemon=True).start()
-
-# ─── CRASH-PROOF POLLING ENGINE ────────────────────────────────────────────
+# ─── CRASH-PROOF TELEGRAM POLLING ENGINE ────────────────────────────────────
 def run_polling():
-    # Remove webhook if leftover
     try:
         bot.remove_webhook()
+        time.sleep(1)
     except Exception:
         pass
 
     while True:
         try:
-            print("[+] Starting Infinity Polling...")
+            print("[+] Starting Infinity Polling (Resilient Engine)...")
             bot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
         except telebot.apihelper.ApiTelegramException as e:
-            print(f"[!] Telegram API error: {e}")
+            print(f"[!] Telegram API Exception: {e}")
             if "Conflict" in str(e):
-                print("[!] 409 Conflict: Old deployment instance still dying. Retrying in 12 seconds...")
-                time.sleep(12)
+                print("[!] 409 Conflict: Old deployment instance still active on Render. Waiting 15s...")
+                time.sleep(15)
             else:
                 time.sleep(5)
         except Exception as e:
-            print(f"[!] Unexpected polling error: {e}")
+            print(f"[!] Polling recovery loop: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":
     print("=" * 60)
-    print(f" {BOT_NAME} - SYSTEM ONLINE ")
+    print(f" NEBULA HOST CLOUD - PRODUCTION READY ")
     print(f" Super Admin ID: {OWNER_ID}")
     print(f" Support: {YOUR_USERNAME}")
     print(" Payment: Only Binance Pay & USDT")
-    print(" Deploy Resilience: 409 Conflict & PEP 668 Protected")
+    print(" Deploy Resilience: 409 Conflict & Port Healthcheck Safe")
     print("=" * 60)
 
-    keep_alive()
+    # Clean shutdown hook
+    atexit.register(lambda: [kill_process_tree(p) for p in bot_scripts.values()])
+
+    # Start background threads safely inside main
+    threading.Thread(target=expiry_cron_loop, daemon=True).start()
+
+    # Start Flask Webserver in background thread
+    t_flask = Thread(target=run_flask_server)
+    t_flask.daemon = True
+    t_flask.start()
+
+    # Start Infinity Polling on Main Thread
     run_polling()
