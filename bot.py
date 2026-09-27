@@ -55,7 +55,7 @@ def keep_alive():
     print("Flask Keep-Alive server started.")
 
 # --- Configuration (Previous Credentials Retained) ---
-TOKEN = "8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI"
+TOKEN = "8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU"
 OWNER_ID = 2014144404
 ADMIN_ID = 2014144404
 YOUR_USERNAME = "@YourDomains"
