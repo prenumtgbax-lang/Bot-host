@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║              NEBULA CLOUD HOSTING BOT — FULL ADVANCED EDITION             ║
+║              NEBULA CLOUD HOSTING BOT — PRODUCTION CRASH-PROOF            ║
 ║                                                                           ║
 ║  • Target Admin ID: 2014144404                                            ║
 ║  • Support: @YourDomains                                                  ║
 ║  • Token: 8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU                 ║
-║  • Deposit Gateway: Only Binance Pay & USDT                               ║
-║  • Automatic Admin File Forwarding & 1-Click Launch Approval              ║
-║  • Referral Commission & Bonus System Integrated                          ║
-║  • Admin Controls: User Bot Start/Stop/Delete/Backup & Balance (+/-)      ║
-║  • 100% Validated Telegram Custom Emojis & Colored Buttons                ║
+║  • 409 Conflict & PEP 668 Auto-Recovery (Zero Deploy Crash)              ║
+║  • Gateway: Binance Only (Pay ID & USDT)                                  ║
+║  • Auto Admin File Dispatch & 1-Click Launch Approval                     ║
+║  • Full Bot Management: Start/Stop/Restart/Delete/Download ZIP            ║
+║  • Balance Modifier (+/-) & Multi-Tier Dynamic Plan Manager               ║
+║  • Referral Commission & Bonus Engine                                     ║
+║  • Compliant Custom Emojis (No ENTITY_TEXT_INVALID)                       ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -39,28 +41,31 @@ import psutil
 import telebot
 from telebot import types
 
-# --- Flask Keep-Alive Server ---
+# ── KEEP-ALIVE SERVER (FOR RENDER / KOYEB / PAAS) ───────────────────────────
 app = Flask("")
 
 @app.route("/")
 def home():
-    return "Nebula Cloud Hosting System is Live & Active"
+    return "Nebula Cloud Hosting Engine Active & Healthy"
 
 @app.route("/health")
 def health():
-    return "alive"
+    return "OK", 200
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    try:
+        port = int(os.environ.get("PORT", 8080))
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        print(f"[!] Web server binding error: {e}")
 
 def keep_alive():
     t = Thread(target=run_flask)
     t.daemon = True
     t.start()
-    print("[+] Flask Web Server Started on Port 8080.")
+    print("[+] Background Keep-Alive Server Online.")
 
-# --- Configuration & Credentials ---
+# ── CONFIGURATION & CREDENTIALS ─────────────────────────────────────────────
 TOKEN = "8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU"
 OWNER_ID = 2014144404
 ADMIN_ID = 2014144404
@@ -72,8 +77,8 @@ UPDATE_CHANNEL = "https://t.me/YourChannel"
 BINANCE_PAY_ID = "12345678"
 BINANCE_USDT_ADDRESS = "TQn9Y2KhPzW9H1L8o9qJ2Q5k4h3g2f1TRX"
 
-# Referral Reward (Credited to referrer on new user start)
-REFERRAL_JOIN_BONUS = 1.0  # Balance bonus in USD
+# Referral Engine Settings
+REFERRAL_JOIN_BONUS = 1.0  # Balance in USD for inviting a member
 REFERRAL_DEPOSIT_COMMISSION = 0.10  # 10% commission on deposit
 
 FORCE_SUB_CHANNELS = [
@@ -84,7 +89,7 @@ FORCE_SUB_CHANNELS = [
     }
 ]
 
-# Folders Setup
+# Path Configurations
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_BOTS_DIR = os.path.join(BASE_DIR, "upload_bots")
 DATABASE_DIR = os.path.join(BASE_DIR, "database_store")
@@ -102,7 +107,7 @@ os.makedirs(BACKUPS_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN)
 
-# ─── TELEGRAM CUSTOM EMOJIS (ID + COMPLIANT FALLBACK EMOJI) ────────────────
+# ── TELEGRAM CUSTOM EMOJIS (ID + COMPLIANT FALLBACK EMOJI) ─────────────────
 EMOJIS_DATA = {
     "wallet": ("6073556477824472025", "💳"),
     "balance": ("6073556477824472025", "💳"),
@@ -143,43 +148,38 @@ EMOJIS_DATA = {
 }
 
 def CE(key: str) -> str:
-    """Returns valid custom Telegram emoji without causing ENTITY_TEXT_INVALID."""
+    """Compliant custom Telegram emoji tag wrapping valid unicode character."""
     emoji_id, fallback = EMOJIS_DATA.get(key, ("6314480331831385997", "✨"))
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
-# ── BOT API 7.0+ BUTTON STYLE & CUSTOM ICON PATCH ──────────────────────────
-def _patch_button_style(button_cls):
-    _orig_init = button_cls.__init__
-    def _new_init(self, *args, style=None, icon_custom_emoji_id=None, **kwargs):
-        _orig_init(self, *args, **kwargs)
+# ── BOT API 7.0+ BUTTON STYLE & CUSTOM ICON ENHANCER ───────────────────────
+class StyledInlineButton(types.InlineKeyboardButton):
+    def __init__(self, text, callback_data=None, url=None, style=None, icon=None, **kwargs):
+        super().__init__(text, callback_data=callback_data, url=url, **kwargs)
         self.style = style
-        self.icon_custom_emoji_id = icon_custom_emoji_id
-    button_cls.__init__ = _new_init
+        if icon and icon in EMOJIS_DATA:
+            self.icon_custom_emoji_id = EMOJIS_DATA[icon][0]
 
-    for dict_method_name in ("to_dict", "to_dic"):
-        if hasattr(button_cls, dict_method_name):
-            _orig_dict = getattr(button_cls, dict_method_name)
-            def _new_dict(self, _orig=_orig_dict):
-                d = _orig(self)
-                if getattr(self, "style", None):
-                    d["style"] = self.style
-                if getattr(self, "icon_custom_emoji_id", None):
-                    d["icon_custom_emoji_id"] = self.icon_custom_emoji_id
-                return d
-            setattr(button_cls, dict_method_name, _new_dict)
-
-_patch_button_style(types.InlineKeyboardButton)
-_patch_button_style(types.KeyboardButton)
+    def to_dict(self):
+        d = super().to_dict()
+        if self.style:
+            d["style"] = self.style
+        if getattr(self, "icon_custom_emoji_id", None):
+            d["icon_custom_emoji_id"] = self.icon_custom_emoji_id
+        return d
 
 def cbtn(text, callback_data=None, url=None, style="primary", icon=None):
-    icon_id = EMOJIS_DATA[icon][0] if icon and icon in EMOJIS_DATA else None
-    return types.InlineKeyboardButton(text, callback_data=callback_data, url=url, style=style, icon_custom_emoji_id=icon_id)
+    return StyledInlineButton(text, callback_data=callback_data, url=url, style=style, icon=icon)
 
 def rkbtn(text, style="primary", icon=None):
-    icon_id = EMOJIS_DATA[icon][0] if icon and icon in EMOJIS_DATA else None
-    return types.KeyboardButton(text, style=style, icon_custom_emoji_id=icon_id)
+    btn = types.KeyboardButton(text)
+    if style:
+        btn.style = style
+    if icon and icon in EMOJIS_DATA:
+        btn.icon_custom_emoji_id = EMOJIS_DATA[icon][0]
+    return btn
 
-# --- In-Memory Structures ---
+# --- Memory Cache ---
 bot_scripts = {}
 user_subscriptions = {}
 user_files = {}
@@ -190,7 +190,7 @@ banned_users = set()
 bot_settings_cache = {}
 user_limit_overrides = {}
 bot_locked = False
-pending_approvals = {}  # file_id -> file info
+pending_approvals = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -200,48 +200,39 @@ def safe_send(chat_id, text, reply_markup=None):
     try:
         return bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode="HTML")
     except telebot.apihelper.ApiTelegramException as e:
-        if "ENTITY_TEXT_INVALID" in str(e) or "can't parse entities" in str(e).lower():
-            clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
-            try:
-                return bot.send_message(chat_id, clean_text, reply_markup=reply_markup, parse_mode="HTML")
-            except Exception:
-                return bot.send_message(chat_id, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+        clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         try:
-            return bot.send_message(chat_id, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+            return bot.send_message(chat_id, clean_text, reply_markup=reply_markup, parse_mode="HTML")
         except Exception:
-            return None
+            return bot.send_message(chat_id, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+    except Exception:
+        return None
 
 def safe_reply(message, text, reply_markup=None):
     try:
         return bot.reply_to(message, text, reply_markup=reply_markup, parse_mode="HTML")
     except telebot.apihelper.ApiTelegramException as e:
-        if "ENTITY_TEXT_INVALID" in str(e) or "can't parse entities" in str(e).lower():
-            clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
-            try:
-                return bot.reply_to(message, clean_text, reply_markup=reply_markup, parse_mode="HTML")
-            except Exception:
-                return bot.reply_to(message, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+        clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         try:
-            return bot.reply_to(message, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+            return bot.reply_to(message, clean_text, reply_markup=reply_markup, parse_mode="HTML")
         except Exception:
-            return None
+            return bot.reply_to(message, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+    except Exception:
+        return None
 
 def safe_edit(chat_id, message_id, text, reply_markup=None):
     try:
         return bot.edit_message_text(text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
     except telebot.apihelper.ApiTelegramException as e:
-        if "ENTITY_TEXT_INVALID" in str(e) or "can't parse entities" in str(e).lower():
-            clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
-            try:
-                return bot.edit_message_text(clean_text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
-            except Exception:
-                return bot.edit_message_text(re.sub(r'<[^>]*>', '', text), chat_id, message_id, reply_markup=reply_markup)
+        clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         try:
-            return bot.edit_message_text(re.sub(r'<[^>]*>', '', text), chat_id, message_id, reply_markup=reply_markup)
+            return bot.edit_message_text(clean_text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
         except Exception:
-            return None
+            return bot.edit_message_text(re.sub(r'<[^>]*>', '', text), chat_id, message_id, reply_markup=reply_markup)
+    except Exception:
+        return None
 
-# --- Database Initialization ---
+# --- Database Schema & Initialization ---
 DB_LOCK = threading.Lock()
 
 def init_db():
@@ -293,22 +284,19 @@ def init_db():
             url TEXT
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS bot_settings (key TEXT PRIMARY KEY, value TEXT)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS user_limits (user_id INTEGER PRIMARY KEY, file_limit INTEGER)""")
 
-        # Default Settings
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('update_channel', ?)", (UPDATE_CHANNEL,))
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('binance_pay_id', ?)", (BINANCE_PAY_ID,))
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('binance_usdt_address', ?)", (BINANCE_USDT_ADDRESS,))
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('free_user_limit', ?)", (str(FREE_USER_LIMIT),))
-        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('bot_off_message', 'System maintenance in progress.')")
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('bot_off_message', 'System offline for maintenance.')")
         c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (OWNER_ID,))
 
-        # Default Plans
         c.execute("SELECT COUNT(*) FROM plans")
         if c.fetchone()[0] == 0:
             default_plans = [
                 ("starter", "Starter Tier", 3, 10.0, 30, "3 Bot Hosting Slots for 30 Days"),
-                ("pro", "Pro Tier", 8, 25.0, 30, "8 Bot Hosting Slots + High RAM"),
+                ("pro", "Pro Tier", 8, 25.0, 30, "8 Bot Hosting Slots + Dedicated RAM"),
                 ("vip", "VIP Ultra", 20, 50.0, 30, "20 Bot Slots + Dedicated Priority"),
                 ("lifetime", "Lifetime Access", 50, 150.0, 3650, "50 Bot Hosting Slots for 10 Years")
             ]
@@ -323,8 +311,7 @@ def load_data():
         c = conn.cursor()
         c.execute("SELECT user_id, plan_name, plan_expiry FROM users WHERE plan_expiry IS NOT NULL")
         for uid, pname, exp in c.fetchall():
-            try:
-                user_subscriptions[uid] = {"plan_name": pname, "expiry": datetime.fromisoformat(exp)}
+            try: user_subscriptions[uid] = {"plan_name": pname, "expiry": datetime.fromisoformat(exp)}
             except Exception: pass
 
         c.execute("SELECT user_id, file_name, file_type, COALESCE(status, 'approved') FROM user_files")
@@ -343,7 +330,6 @@ def load_data():
 
         c.execute("SELECT user_id FROM users WHERE is_banned = 1")
         banned_users.update(uid for (uid,) in c.fetchall())
-
         conn.close()
 
 init_db()
@@ -437,10 +423,9 @@ def get_user_file_limit(user_id):
     if user_id == OWNER_ID: return OWNER_LIMIT
     if user_id in admin_ids: return ADMIN_LIMIT
     u = get_user_data(user_id)
-    if u and u[5]:  # plan_expiry
+    if u and u[5]:
         try:
             if datetime.fromisoformat(u[5]) > datetime.now():
-                # fetch plan limit
                 with DB_LOCK:
                     conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
                     c = conn.cursor()
@@ -455,7 +440,7 @@ def get_user_file_limit(user_id):
 def get_user_file_count(user_id):
     return len(user_files.get(user_id, []))
 
-# ─── EXTENSIVE MODULE INSTALLER & RECOVERY ──────────────────────────────────
+# ─── RELIABLE PACKAGE INSTALLER (PEP-668 / LINUX SAFE) ─────────────────────
 TELEGRAM_MODULES = {
     "telebot": "pyTelegramBotAPI",
     "telegram": "python-telegram-bot",
@@ -474,25 +459,30 @@ TELEGRAM_MODULES = {
     "aiohttp": "aiohttp"
 }
 
-def install_system_package(pkg_input, message=None):
-    """Accurately installs Python or NPM libraries with detailed feedback."""
+def install_system_package(pkg_input):
+    """Installs libraries safely handling PEP 668 managed environments."""
     if pkg_input.lower().startswith("npm:"):
         pkg_name = pkg_input[4:].strip()
         cmd = ["npm", "install", "-g", pkg_name]
     else:
         pkg_name = pkg_input.strip()
         pkg_name = TELEGRAM_MODULES.get(pkg_name.lower(), pkg_name)
-        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--user", pkg_name]
+        cmd = [sys.executable, "-m", "pip", "install", "--break-system-packages", pkg_name]
 
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if res.returncode == 0:
             return True, f"Package <code>{pkg_name}</code> installed successfully."
         else:
-            err = res.stderr or res.stdout or "Installation returned error code."
-            return False, f"Failed: <code>{html.escape(err[-300:])}</code>"
+            # Fallback retry with --user
+            fallback_cmd = [sys.executable, "-m", "pip", "install", "--user", pkg_name]
+            res_fb = subprocess.run(fallback_cmd, capture_output=True, text=True, timeout=180)
+            if res_fb.returncode == 0:
+                return True, f"Package <code>{pkg_name}</code> installed successfully."
+            err = res.stderr or res.stdout or "Error installing package."
+            return False, f"Install Error: <code>{html.escape(err[-250:])}</code>"
     except Exception as e:
-        return False, f"Execution Error: <code>{str(e)}</code>"
+        return False, f"Execution Failure: <code>{str(e)}</code>"
 
 # ─── PROCESS SUPERVISOR & RUNNER ───────────────────────────────────────────
 def get_user_folder(user_id):
@@ -540,15 +530,13 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
     script_key = f"{script_owner_id}_{file_name}"
     log_file_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
 
-    # Install requirements.txt if present
     req_file = os.path.join(user_folder, "requirements.txt")
     if os.path.exists(req_file):
         try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "--user", "-r", req_file],
+            subprocess.run([sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", req_file],
                            capture_output=True, timeout=120)
         except Exception: pass
 
-    # Pre-execution scan for missing modules & auto install
     try:
         check_proc = subprocess.Popen([sys.executable, script_path], cwd=user_folder,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -582,7 +570,7 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             with open(log_file_path, "r", errors="ignore") as f:
                 tail = "".join(f.readlines()[-15:])
             if message_obj_for_reply:
-                safe_send(script_owner_id, f"{CE('notice')} <b>Execution Halted on Launch:</b>\n<pre>{html.escape(tail)}</pre>")
+                safe_send(script_owner_id, f"{CE('notice')} <b>Execution Stopped on Launch:</b>\n<pre>{html.escape(tail)}</pre>")
             return False
 
         bot_scripts[script_key] = {
@@ -594,7 +582,7 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             "type": "py"
         }
 
-        safe_send(script_owner_id, f"{CE('done')} <b>Container Process Active:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)")
+        safe_send(script_owner_id, f"{CE('done')} <b>Container Process Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)")
         return True
     except Exception as e:
         safe_send(script_owner_id, f"{CE('close')} <b>Process Failure:</b> <code>{str(e)}</code>")
@@ -644,7 +632,7 @@ def create_admin_panel_inline():
         cbtn("Stop All Workers", callback_data="adm_stop_all", style="danger", icon="stop"),
     )
     markup.add(
-        cbtn("Update Binance Settings", callback_data="adm_binance_cfg", style="primary", icon="binance"),
+        cbtn("Update Binance Config", callback_data="adm_binance_cfg", style="primary", icon="binance"),
         cbtn("Close Console", callback_data="adm_close", style="danger", icon="close"),
     )
     return markup
@@ -657,7 +645,6 @@ def command_start(message):
     username = message.from_user.username or "N/A"
     name = message.from_user.first_name or "User"
 
-    # Check Referral
     referrer_id = None
     parts = message.text.split()
     if len(parts) > 1 and parts[1].startswith("ref_"):
@@ -667,7 +654,6 @@ def command_start(message):
                 referrer_id = ref_candidate
         except Exception: pass
 
-    # Register user if not exists
     user = get_user_data(user_id)
     if not user:
         now = datetime.now().isoformat()
@@ -682,17 +668,16 @@ def command_start(message):
         active_users.add(user_id)
         user_profiles[user_id] = {"name": name, "username": username}
 
-        # Credit Referral Bonus
         if referrer_id:
             update_user_balance(referrer_id, REFERRAL_JOIN_BONUS)
             safe_send(referrer_id, f"{CE('gift')} <b>New Referral Registered!</b>\nUser <code>{user_id}</code> joined via your link. You earned <code>${REFERRAL_JOIN_BONUS:.2f}</code> bonus balance!")
 
     user = get_user_data(user_id)
-    if user and user[6] == 1:  # is_banned
+    if user and user[6] == 1:
         safe_send(chat_id, f"{CE('notice')} <b>Account Restricted from Accessing Network.</b>")
         return
 
-    # Force Sub Check
+    # Force Subscription Validation
     if not (user_id == OWNER_ID or user_id in admin_ids):
         for ch in FORCE_SUB_CHANNELS:
             try:
@@ -738,7 +723,6 @@ def handle_incoming_file(message):
     if user and user[6] == 1:
         return safe_send(chat_id, f"{CE('notice')} <b>Account Restricted.</b>")
 
-    # Slot Limit Enforcement
     limit = get_user_file_limit(user_id)
     if get_user_file_count(user_id) >= limit:
         return safe_send(chat_id, f"{CE('close')} <b>Container Quota Full ({get_user_file_count(user_id)}/{limit})!</b> Upgrade your plan to deploy more bots.")
@@ -751,7 +735,6 @@ def handle_incoming_file(message):
 
     user_folder = get_user_folder(user_id)
 
-    # If user uploads requirements.txt for staged script
     if filename.lower() == "requirements.txt" and user_id in user_staged_uploads:
         wait_m = safe_reply(message, f"{CE('loading')} <i>Linking requirements.txt and preparing admin dispatch...</i>")
         file_info = bot.get_file(doc.file_id)
@@ -764,7 +747,6 @@ def handle_incoming_file(message):
         safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>Script & Requirements successfully forwarded to Admin for approval!</b>")
         return
 
-    # Download primary script
     wait_m = safe_reply(message, f"{CE('loading')} <i>Downloading & Pre-flight inspecting source file...</i>")
     file_info = bot.get_file(doc.file_id)
     downloaded = bot.download_file(file_info.file_path)
@@ -821,7 +803,7 @@ def forward_bot_to_admin(user_id, filename, file_path):
         with open(file_path, "rb") as f:
             bot.send_document(OWNER_ID, f, caption=caption, reply_markup=markup, parse_mode="HTML")
     except Exception as e:
-        safe_send(OWNER_ID, caption + f"\n\n<i>(Could not attach file directly: {e})</i>", reply_markup=markup)
+        safe_send(OWNER_ID, caption + f"\n\n<i>(Attachment relay fallback: {e})</i>", reply_markup=markup)
 
 # ─── BINANCE ONLY PAYMENT DEPOSIT FLOW ─────────────────────────────────────
 @bot.callback_query_handler(func=lambda call: call.data == "deposit_binance")
@@ -833,7 +815,7 @@ def handle_deposit_prompt(call):
     text = (
         f"{CE('binance')} <b>BINANCE OFFICIAL PAYMENT GATEWAY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Send USDT to our official Binance payment addresses:\n\n"
+        f"Send USDT to our official Binance payment address:\n\n"
         f"{CE('link')} <b>Binance Pay ID:</b> <code>{pay_id}</code> (Tap to Copy)\n"
         f"{CE('wallet')} <b>USDT Address (BEP20/TRC20):</b>\n<code>{usdt_addr}</code>\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -904,7 +886,7 @@ def show_referral_menu(chat_id, user_id):
         f"{CE('money')} <b>Total Affiliate Profits:</b> <code>${earnings:.2f} USD</code>"
     )
     markup = types.InlineKeyboardMarkup()
-    markup.add(cbtn("Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Join%20Nebula%20Cloud%20Hosting!", style="success", icon="gift"))
+    markup.add(cbtn("Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Deploy%20Telegram%20Bots%2024/7%20on%20Nebula%20Cloud!", style="success", icon="gift"))
     safe_send(chat_id, text, reply_markup=markup)
 
 # ─── WALLET & PLANS INTERFACES ─────────────────────────────────────────────
@@ -946,7 +928,7 @@ def show_plans_menu(chat_id, user_id):
     markup.add(cbtn("Deposit Balance", callback_data="deposit_binance", style="success", icon="binance"))
     safe_send(chat_id, text, reply_markup=markup)
 
-# ─── MY BOTS (LIVE CONTROLLER) ─────────────────────────────────────────────
+# ─── MY BOTS CONTROLLER ────────────────────────────────────────────────────
 def show_user_bots(chat_id, user_id):
     flist = user_files.get(user_id, [])
     if not flist:
@@ -1013,13 +995,11 @@ def handle_all_callbacks(call):
     chat_id = call.message.chat.id
     data = call.data
 
-    # --- Force Sub Verification ---
     if data == "verify_fsub":
         command_start(call.message)
         bot.answer_callback_query(call.id, "Verified!")
         return
 
-    # --- Skip Requirements in Upload ---
     if data.startswith("skip_req_"):
         fname = data.replace("skip_req_", "")
         user_staged_uploads.pop(user_id, None)
@@ -1029,7 +1009,6 @@ def handle_all_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    # --- Admin File Approval ---
     if data.startswith("apprv_"):
         if user_id != OWNER_ID and user_id not in admin_ids:
             return bot.answer_callback_query(call.id, "Unauthorized.", show_alert=True)
@@ -1063,7 +1042,6 @@ def handle_all_callbacks(call):
         safe_edit(chat_id, call.message.message_id, f"{CE('close')} <b>Container Rejected & Purged.</b>")
         return
 
-    # --- Admin Binance Deposit Approval ---
     if data.startswith("appdep_"):
         if user_id != OWNER_ID: return
         _, dep_id, target_uid = data.split("_")
@@ -1087,7 +1065,6 @@ def handle_all_callbacks(call):
         safe_send(int(target_uid), f"{CE('close')} <b>Your deposit submission #{dep_id} was rejected by billing admin.</b>")
         return
 
-    # --- Plan Purchase ---
     if data.startswith("buyplan_"):
         pid = data.replace("buyplan_", "")
         with DB_LOCK:
@@ -1107,7 +1084,6 @@ def handle_all_callbacks(call):
             bot.answer_callback_query(call.id, f"Insufficient Balance! You need ${price:.2f} USD.", show_alert=True)
             return
 
-        # Deduct balance & activate
         update_user_balance(user_id, -price)
         expiry = (datetime.now() + timedelta(days=days)).isoformat()
 
@@ -1122,7 +1098,6 @@ def handle_all_callbacks(call):
         safe_send(chat_id, f"{CE('done')} <b>Plan <code>{pname}</code> Activated!</b>\nValid for <code>{days} Days</code>. Slot quota increased to <code>{mbots} Bots</code>.")
         return
 
-    # --- Bot Controls ---
     if data == "back_my_bots":
         show_user_bots(chat_id, user_id)
         bot.answer_callback_query(call.id)
@@ -1198,7 +1173,7 @@ def handle_all_callbacks(call):
 
         return
 
-    # --- Admin Console Routes ---
+    # --- Admin Operations ---
     if data == "adm_plans_mgr" and (user_id in admin_ids or user_id == OWNER_ID):
         plans = get_all_plans()
         text = f"{CE('diamond')} <b>PLAN MANAGER CONSOLE</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1299,13 +1274,11 @@ def process_deposit_approval_amount(message, dep_id, target_uid):
             conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute("UPDATE deposits SET status = 'approved', amount = ? WHERE deposit_id = ?", (amount, dep_id))
-            # Check if user had a referrer for deposit commission
             c.execute("SELECT referred_by FROM users WHERE user_id = ?", (target_uid,))
             ref_row = c.fetchone()
             conn.commit()
             conn.close()
 
-        # Handle Referral Commission
         if ref_row and ref_row[0]:
             comm = amount * REFERRAL_DEPOSIT_COMMISSION
             update_user_balance(ref_row[0], comm)
@@ -1378,7 +1351,7 @@ def process_broadcast_transmission(message):
         except Exception: failed += 1
     safe_edit(message.chat.id, status_m.message_id, f"{CE('done')} <b>Broadcast Finished! Delivered: <code>{sent}</code> | Failed: <code>{failed}</code>.</b>")
 
-# ─── BUTTON MAPPING & REPLY ENGINE ─────────────────────────────────────────
+# ─── BUTTON MAPPING & REPLY ROUTER ─────────────────────────────────────────
 BUTTON_MAPPING = {
     "Upload File": lambda m: _logic_upload_file(m),
     "My Bots": lambda m: show_user_bots(m.chat.id, m.from_user.id),
@@ -1386,7 +1359,7 @@ BUTTON_MAPPING = {
     "Wallet & Deposit": lambda m: show_wallet_menu(m.chat.id, m.from_user.id),
     "Server Benchmark": lambda m: _logic_speed(m),
     "Referral Program": lambda m: show_referral_menu(m.chat.id, m.from_user.id),
-    "Help Desk": lambda m: safe_send(m.chat.id, f"{CE('support')} <b>Dedicated Consultant:</b> {YOUR_USERNAME}\n24/7 Priority Ticket Desk."),
+    "Help Desk": lambda m: safe_send(m.chat.id, f"{CE('support')} <b>Dedicated Consultant:</b> {YOUR_USERNAME}\n24/7 Priority Support Desk."),
     "Manual Install": lambda m: _prompt_manual_install(m),
     "Updates Channel": lambda m: safe_send(m.chat.id, f"{CE('link')} <b>Official Channel:</b> {UPDATE_CHANNEL}"),
     "Admin Console": lambda m: safe_send(m.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
@@ -1424,7 +1397,7 @@ def handle_main_menu_buttons(message):
         return safe_send(message.chat.id, f"{CE('notice')} <b>System Locked for Maintenance.</b>")
     BUTTON_MAPPING[message.text](message)
 
-# ─── BACKGROUND CRON SCHEDULER ─────────────────────────────────────────────
+# ─── BACKGROUND CRON LOOP (AUTO EXPIRY CHECK) ──────────────────────────────
 def expiry_cron_loop():
     while True:
         try:
@@ -1447,7 +1420,6 @@ def expiry_cron_loop():
                             conn.commit()
                             conn.close()
 
-                        # Stop all active bots of user
                         for skey in list(bot_scripts.keys()):
                             if skey.startswith(f"{uid}_"):
                                 kill_process_tree(bot_scripts[skey])
@@ -1461,14 +1433,37 @@ def expiry_cron_loop():
 atexit.register(lambda: [kill_process_tree(p) for p in bot_scripts.values()])
 threading.Thread(target=expiry_cron_loop, daemon=True).start()
 
+# ─── CRASH-PROOF POLLING ENGINE ────────────────────────────────────────────
+def run_polling():
+    # Remove webhook if leftover
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
+
+    while True:
+        try:
+            print("[+] Starting Infinity Polling...")
+            bot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
+        except telebot.apihelper.ApiTelegramException as e:
+            print(f"[!] Telegram API error: {e}")
+            if "Conflict" in str(e):
+                print("[!] 409 Conflict: Old deployment instance still dying. Retrying in 12 seconds...")
+                time.sleep(12)
+            else:
+                time.sleep(5)
+        except Exception as e:
+            print(f"[!] Unexpected polling error: {e}")
+            time.sleep(5)
+
 if __name__ == "__main__":
     print("=" * 60)
     print(f" {BOT_NAME} - SYSTEM ONLINE ")
     print(f" Super Admin ID: {OWNER_ID}")
     print(f" Support: {YOUR_USERNAME}")
     print(" Payment: Only Binance Pay & USDT")
-    print(" UI: Pure Custom Telegram Emojis & Validated Buttons")
+    print(" Deploy Resilience: 409 Conflict & PEP 668 Protected")
     print("=" * 60)
 
     keep_alive()
-    bot.infinity_polling(timeout=60, long_polling_timeout=30)
+    run_polling()
