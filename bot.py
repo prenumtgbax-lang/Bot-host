@@ -8,11 +8,11 @@
 ║  • Token: 8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU                 ║
 ║  • Render Web Service Port Binding & Health Check Protected               ║
 ║  • Auto-Recovery from 409 Conflict & PEP 668 Package Failures            ║
-║  • Gateways: Binance Only (Pay ID & USDT Network)                         ║
-║  • Auto Admin Forwarding & 1-Click Launch Approval                        ║
-║  • Full Bot Management: Start/Stop/Restart/Delete/Download Backup         ║
-║  • User Balance Modifier (+/-) & Dynamic Plan Manager                     ║
-║  • Referral Commission & Bonus Engine Integrated                          ║
+║  • Gateways: Binance (Pay ID & USDT Network) with Admin On/Off Switch     ║
+║  • Dynamic SQLite Database Switcher from Bot Panel                        ║
+║  • Dedicated Broadcast to All Hosted Bot Owners                           ║
+║  • Permanent & Complete Bot Process & File Deletion                       ║
+║  • Strict Admin Approval Execution Security Flow                          ║
 ║  • 100% Compliant Custom Emojis (No ENTITY_TEXT_INVALID)                  ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 """
@@ -55,7 +55,6 @@ def health():
 
 def run_flask_server():
     try:
-        # Render passes $PORT dynamically (usually 10000)
         port = int(os.environ.get("PORT", 8080))
         print(f"[+] Binding Web Server on 0.0.0.0:{port}...")
         app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
@@ -70,13 +69,13 @@ YOUR_USERNAME = "@YourDomains"
 SUPPORT_CONTACT_ID = 2014144404
 UPDATE_CHANNEL = "https://t.me/BABY_CODER_1"
 
-# Binance Payment Gateways
+# Binance Payment Gateways Defaults
 BINANCE_PAY_ID = "746899490"
 BINANCE_USDT_ADDRESS = "TVgQoqGMipsdYsbtV7PPj6FKW9MM29fVDq"
 
 # Referral Engine Settings
-REFERRAL_JOIN_BONUS = 0.01  # Balance in USD for inviting a member
-REFERRAL_DEPOSIT_COMMISSION = 0.05  # 10% commission on deposit
+REFERRAL_JOIN_BONUS = 0.01  # USD
+REFERRAL_DEPOSIT_COMMISSION = 0.10  # 10% commission
 
 FORCE_SUB_CHANNELS = [
     {
@@ -141,11 +140,11 @@ EMOJIS_DATA = {
     "money": ("6312104703815590263", "💰"),
     "search": ("6311848921333245664", "🔍"),
     "sparkle": ("6314480331831385997", "✨"),
-    "star": ("6314235179393096157", "⭐")
+    "star": ("6314235179393096157", "⭐"),
+    "db": ("6073556477824472025", "🗄️")
 }
 
 def CE(key: str) -> str:
-    """Wraps single valid unicode character to prevent Telegram ENTITY_TEXT_INVALID error."""
     emoji_id, fallback = EMOJIS_DATA.get(key, ("6314480331831385997", "✨"))
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
@@ -176,7 +175,7 @@ def rkbtn(text, style="primary", icon=None):
         btn.icon_custom_emoji_id = EMOJIS_DATA[icon][0]
     return btn
 
-# --- Memory Cache ---
+# --- Global In-Memory Caches ---
 bot_scripts = {}
 user_subscriptions = {}
 user_files = {}
@@ -185,7 +184,6 @@ admin_ids = {ADMIN_ID, OWNER_ID}
 user_profiles = {}
 banned_users = set()
 bot_settings_cache = {}
-user_limit_overrides = {}
 bot_locked = False
 pending_approvals = {}
 
@@ -196,7 +194,7 @@ logger = logging.getLogger(__name__)
 def safe_send(chat_id, text, reply_markup=None):
     try:
         return bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode="HTML")
-    except telebot.apihelper.ApiTelegramException as e:
+    except telebot.apihelper.ApiTelegramException:
         clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         try:
             return bot.send_message(chat_id, clean_text, reply_markup=reply_markup, parse_mode="HTML")
@@ -208,7 +206,7 @@ def safe_send(chat_id, text, reply_markup=None):
 def safe_reply(message, text, reply_markup=None):
     try:
         return bot.reply_to(message, text, reply_markup=reply_markup, parse_mode="HTML")
-    except telebot.apihelper.ApiTelegramException as e:
+    except telebot.apihelper.ApiTelegramException:
         clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         try:
             return bot.reply_to(message, clean_text, reply_markup=reply_markup, parse_mode="HTML")
@@ -220,7 +218,7 @@ def safe_reply(message, text, reply_markup=None):
 def safe_edit(chat_id, message_id, text, reply_markup=None):
     try:
         return bot.edit_message_text(text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
-    except telebot.apihelper.ApiTelegramException as e:
+    except telebot.apihelper.ApiTelegramException:
         clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         try:
             return bot.edit_message_text(clean_text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
@@ -252,7 +250,7 @@ def init_db():
             user_id INTEGER,
             file_name TEXT,
             file_type TEXT,
-            status TEXT DEFAULT 'approved',
+            status TEXT DEFAULT 'pending',
             PRIMARY KEY (user_id, file_name)
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS active_users (user_id INTEGER PRIMARY KEY)""")
@@ -274,19 +272,13 @@ def init_db():
             status TEXT DEFAULT 'pending',
             created_at TEXT
         )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS force_sub_channels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            chat_id TEXT,
-            url TEXT
-        )""")
         c.execute("""CREATE TABLE IF NOT EXISTS bot_settings (key TEXT PRIMARY KEY, value TEXT)""")
 
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('update_channel', ?)", (UPDATE_CHANNEL,))
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('binance_pay_id', ?)", (BINANCE_PAY_ID,))
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('binance_usdt_address', ?)", (BINANCE_USDT_ADDRESS,))
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('binance_enabled', '1')")
         c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('free_user_limit', ?)", (str(FREE_USER_LIMIT),))
-        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('bot_off_message', 'System offline for maintenance.')")
         c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (OWNER_ID,))
 
         c.execute("SELECT COUNT(*) FROM plans")
@@ -304,14 +296,23 @@ def init_db():
 
 def load_data():
     with DB_LOCK:
+        user_files.clear()
+        active_users.clear()
+        user_profiles.clear()
+        banned_users.clear()
+        admin_ids.clear()
+        admin_ids.update({ADMIN_ID, OWNER_ID})
+
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT user_id, plan_name, plan_expiry FROM users WHERE plan_expiry IS NOT NULL")
         for uid, pname, exp in c.fetchall():
-            try: user_subscriptions[uid] = {"plan_name": pname, "expiry": datetime.fromisoformat(exp)}
-            except Exception: pass
+            try:
+                user_subscriptions[uid] = {"plan_name": pname, "expiry": datetime.fromisoformat(exp)}
+            except Exception:
+                pass
 
-        c.execute("SELECT user_id, file_name, file_type, COALESCE(status, 'approved') FROM user_files")
+        c.execute("SELECT user_id, file_name, file_type, COALESCE(status, 'pending') FROM user_files")
         for uid, fname, ftype, status in c.fetchall():
             user_files.setdefault(uid, []).append((fname, ftype, status))
 
@@ -366,7 +367,7 @@ def set_setting(key, value):
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
+        c.execute("INSERT OR REPLACE INTO bot_settings (key, value) VALUES (?, ?)", (key, str(value)))
         conn.commit()
         conn.close()
 
@@ -395,7 +396,7 @@ def delete_plan_db(plan_id):
         conn.commit()
         conn.close()
 
-def save_user_file(user_id, file_name, file_type="py", status="approved"):
+def save_user_file(user_id, file_name, file_type="py", status="pending"):
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
@@ -437,7 +438,7 @@ def get_user_file_limit(user_id):
 def get_user_file_count(user_id):
     return len(user_files.get(user_id, []))
 
-# ─── RELIABLE PACKAGE INSTALLER (PEP-668 / LINUX SAFE) ─────────────────────
+# ─── RELIABLE PACKAGE INSTALLER ────────────────────────────────────────────
 TELEGRAM_MODULES = {
     "telebot": "pyTelegramBotAPI",
     "telegram": "python-telegram-bot",
@@ -457,7 +458,6 @@ TELEGRAM_MODULES = {
 }
 
 def install_system_package(pkg_input):
-    """Installs libraries safely handling PEP 668 managed environments."""
     if pkg_input.lower().startswith("npm:"):
         pkg_name = pkg_input[4:].strip()
         cmd = ["npm", "install", "-g", pkg_name]
@@ -515,9 +515,11 @@ def kill_process_tree(process_info):
         if process and hasattr(process, "pid") and process.pid:
             parent = psutil.Process(process.pid)
             for child in parent.children(recursive=True):
-                try: child.terminate()
-                except Exception: pass
-            parent.terminate()
+                try:
+                    child.kill()
+                except Exception:
+                    pass
+            parent.kill()
     except Exception as e:
         logger.error(f"Kill process error: {e}")
 
@@ -525,6 +527,11 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
     max_attempts = 2
     script_key = f"{script_owner_id}_{file_name}"
     log_file_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
+
+    # Stop old running process if any
+    if script_key in bot_scripts:
+        kill_process_tree(bot_scripts[script_key])
+        bot_scripts.pop(script_key, None)
 
     req_file = os.path.join(user_folder, "requirements.txt")
     if os.path.exists(req_file):
@@ -578,13 +585,13 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             "type": "py"
         }
 
-        safe_send(script_owner_id, f"{CE('done')} <b>Container Process Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)")
+        safe_send(script_owner_id, f"{CE('done')} <b>Container Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)")
         return True
     except Exception as e:
         safe_send(script_owner_id, f"{CE('close')} <b>Process Failure:</b> <code>{str(e)}</code>")
         return False
 
-# ─── MENUS & INTERFACES (ZERO RAW UNICODE EMOJIS) ───────────────────────────
+# ─── MENUS & INTERFACES ────────────────────────────────────────────────────
 COMMAND_BUTTONS_USER = [
     [("Upload File", "success", "up"), ("My Bots", "primary", "trader")],
     [("Plans & Upgrade", "primary", "diamond"), ("Wallet & Deposit", "success", "wallet")],
@@ -621,14 +628,18 @@ def create_admin_panel_inline():
     )
     markup.add(
         cbtn("Broadcast Notice", callback_data="adm_broadcast", style="success", icon="notice"),
-        cbtn("Lock System", callback_data="adm_lock_system", style="danger", icon="power"),
+        cbtn("SMS All Bot Owners", callback_data="adm_bots_sms", style="success", icon="sms"),
+    )
+    markup.add(
+        cbtn("Binance Gateways", callback_data="adm_binance_cfg", style="primary", icon="binance"),
+        cbtn("Switch Database", callback_data="adm_change_db", style="primary", icon="world"),
     )
     markup.add(
         cbtn("Reboot All Workers", callback_data="adm_reboot_all", style="success", icon="play"),
         cbtn("Stop All Workers", callback_data="adm_stop_all", style="danger", icon="stop"),
     )
     markup.add(
-        cbtn("Update Binance Config", callback_data="adm_binance_cfg", style="primary", icon="binance"),
+        cbtn("Lock System", callback_data="adm_lock_system", style="danger", icon="power"),
         cbtn("Close Console", callback_data="adm_close", style="danger", icon="close"),
     )
     return markup
@@ -658,6 +669,7 @@ def command_start(message):
             c = conn.cursor()
             c.execute("INSERT OR IGNORE INTO users (user_id, username, name, joined_at, referred_by) VALUES (?, ?, ?, ?, ?)",
                       (user_id, username, name, now, referrer_id))
+            c.execute("INSERT OR IGNORE INTO active_users (user_id) VALUES (?)", (user_id,))
             conn.commit()
             conn.close()
 
@@ -666,7 +678,7 @@ def command_start(message):
 
         if referrer_id:
             update_user_balance(referrer_id, REFERRAL_JOIN_BONUS)
-            safe_send(referrer_id, f"{CE('gift')} <b>New Referral Registered!</b>\nUser <code>{user_id}</code> joined via your link. You earned <code>${REFERRAL_JOIN_BONUS:.2f}</code> bonus balance!")
+            safe_send(referrer_id, f"{CE('gift')} <b>New Referral Registered!</b>\nUser <code>{user_id}</code> joined via your link. You earned <code>${REFERRAL_JOIN_BONUS:.2f}</code> bonus!")
 
     user = get_user_data(user_id)
     if user and user[6] == 1:
@@ -706,7 +718,7 @@ def command_start(message):
     )
     safe_send(chat_id, welcome_text, reply_markup=create_main_reply_keyboard(user_id))
 
-# ─── 2-STEP UPLOAD & INSTANT ADMIN FORWARDING ──────────────────────────────
+# ─── 2-STEP UPLOAD & STRICT ADMIN FORWARDING ──────────────────────────────
 user_staged_uploads = {}
 
 @bot.message_handler(content_types=["document"])
@@ -740,10 +752,10 @@ def handle_incoming_file(message):
 
         staged_fname = user_staged_uploads.pop(user_id)
         forward_bot_to_admin(user_id, staged_fname, os.path.join(user_folder, staged_fname))
-        safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>Script & Requirements successfully forwarded to Admin for approval!</b>")
+        safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>Script & Requirements forwarded to Admin! Pending approval.</b>")
         return
 
-    wait_m = safe_reply(message, f"{CE('loading')} <i>Downloading & Pre-flight inspecting source file...</i>")
+    wait_m = safe_reply(message, f"{CE('loading')} <i>Downloading & staging file...</i>")
     file_info = bot.get_file(doc.file_id)
     downloaded = bot.download_file(file_info.file_path)
     file_path = os.path.join(user_folder, filename)
@@ -768,7 +780,7 @@ def handle_incoming_file(message):
 
     elif ext in [".js", ".zip"]:
         forward_bot_to_admin(user_id, filename, file_path)
-        safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>File forwarded to Admin! You will be notified instantly once approved.</b>")
+        safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>File forwarded to Admin! Waiting for approval before launch.</b>")
 
 def forward_bot_to_admin(user_id, filename, file_path):
     user = get_user_data(user_id)
@@ -783,11 +795,11 @@ def forward_bot_to_admin(user_id, filename, file_path):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         cbtn("Approve & Run", callback_data=f"apprv_{file_id}", style="success", icon="play"),
-        cbtn("Reject & Delete", callback_data=f"rjct_{file_id}", style="danger", icon="close")
+        cbtn("Reject & Purge", callback_data=f"rjct_{file_id}", style="danger", icon="close")
     )
 
     caption = (
-        f"{CE('notice')} <b>NEW HOSTING CONTAINER DISPATCHED</b>\n"
+        f"{CE('notice')} <b>NEW HOSTING CONTAINER DISPATCHED (PENDING)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{CE('trader')} <b>User:</b> {html.escape(name)} ({username})\n"
         f"{CE('link')} <b>User ID:</b> <code>{user_id}</code>\n"
@@ -801,28 +813,67 @@ def forward_bot_to_admin(user_id, filename, file_path):
     except Exception as e:
         safe_send(OWNER_ID, caption + f"\n\n<i>(Attachment relay fallback: {e})</i>", reply_markup=markup)
 
-# ─── BINANCE ONLY PAYMENT DEPOSIT FLOW ─────────────────────────────────────
-@bot.callback_query_handler(func=lambda call: call.data == "deposit_binance")
-def handle_deposit_prompt(call):
-    chat_id = call.message.chat.id
+# ─── BINANCE GATEWAY SETTINGS & TOGGLE ─────────────────────────────────────
+def show_binance_config_panel(chat_id, message_id=None):
+    enabled = get_setting("binance_enabled", "1") == "1"
+    pay_id = get_setting("binance_pay_id", BINANCE_PAY_ID)
+    usdt_addr = get_setting("binance_usdt_address", BINANCE_USDT_ADDRESS)
+
+    status_str = f"{CE('done')} ENABLED (ONLINE)" if enabled else f"{CE('close')} DISABLED (OFFLINE)"
+    toggle_text = "Disable Gateway" if enabled else "Enable Gateway"
+
+    text = (
+        f"{CE('binance')} <b>BINANCE GATEWAY CONFIGURATION</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{CE('power')} <b>Current Status:</b> {status_str}\n"
+        f"{CE('link')} <b>Binance Pay ID:</b> <code>{pay_id}</code>\n"
+        f"{CE('wallet')} <b>USDT Address:</b> <code>{usdt_addr}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Select an option below to modify gateway parameters:</i>"
+    )
+
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        cbtn(toggle_text, callback_data="adm_toggle_binance", style="danger" if enabled else "success", icon="power"),
+        cbtn("Set Pay ID", callback_data="adm_set_pay_id", style="primary", icon="arrow_right")
+    )
+    markup.add(
+        cbtn("Set USDT Address", callback_data="adm_set_usdt_addr", style="primary", icon="wallet"),
+        cbtn("Back to Admin Console", callback_data="admin_console", style="primary", icon="arrow_right")
+    )
+
+    if message_id:
+        safe_edit(chat_id, message_id, text, reply_markup=markup)
+    else:
+        safe_send(chat_id, text, reply_markup=markup)
+
+# ─── BINANCE DEPOSIT FLOW ──────────────────────────────────────────────────
+def trigger_deposit_binance(chat_id, user_id):
+    enabled = get_setting("binance_enabled", "1") == "1"
+    if not enabled:
+        return safe_send(chat_id, f"{CE('close')} <b>Binance deposits are currently paused by administration for maintenance. Please check back later!</b>")
+
     pay_id = get_setting("binance_pay_id", BINANCE_PAY_ID)
     usdt_addr = get_setting("binance_usdt_address", BINANCE_USDT_ADDRESS)
 
     text = (
         f"{CE('binance')} <b>BINANCE OFFICIAL PAYMENT GATEWAY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Send USDT to our official Binance payment address:\n\n"
+        f"Send USDT to our verified Binance credentials:\n\n"
         f"{CE('link')} <b>Binance Pay ID:</b> <code>{pay_id}</code> (Tap to Copy)\n"
         f"{CE('wallet')} <b>USDT Address (BEP20/TRC20):</b>\n<code>{usdt_addr}</code>\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('arrow_right')} <b>Next Step:</b> Send your <b>Payment Screenshot</b> and write your <b>Amount & TrxID</b> as caption!"
+        f"{CE('arrow_right')} <b>Next Step:</b> Send your <b>Payment Screenshot</b> and include the <b>Amount & TrxID</b> as caption!"
     )
     safe_send(chat_id, text)
-    bot.answer_callback_query(call.id)
 
 @bot.message_handler(content_types=["photo"])
 def handle_payment_screenshot_upload(message):
     user_id = message.from_user.id
+    enabled = get_setting("binance_enabled", "1") == "1"
+    if not enabled:
+        return safe_reply(message, f"{CE('close')} <b>Binance deposits are currently closed.</b>")
+
     caption_text = message.caption or "No description provided"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -932,11 +983,14 @@ def show_user_bots(chat_id, user_id):
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for fn, ft, st in sorted(flist):
-        running = (st == "approved" and is_bot_running(user_id, fn))
-        st_text = "ONLINE" if running else "STOPPED"
-        icon_k = "done" if running else "close"
-        st_style = "success" if running else "danger"
-        markup.add(cbtn(f"[{st_text}] {fn}", callback_data=f"ctl_{user_id}_{fn}", style=st_style, icon=icon_k))
+        if st == "pending":
+            markup.add(cbtn(f"[PENDING APPROVAL] {fn}", callback_data=f"ctl_{user_id}_{fn}", style="primary", icon="loading"))
+        else:
+            running = (st == "approved" and is_bot_running(user_id, fn))
+            st_text = "ONLINE" if running else "STOPPED"
+            icon_k = "done" if running else "close"
+            st_style = "success" if running else "danger"
+            markup.add(cbtn(f"[{st_text}] {fn}", callback_data=f"ctl_{user_id}_{fn}", style=st_style, icon=icon_k))
 
     safe_send(chat_id, f"{CE('trader')} <b>DEPLOYED INSTANCES CONTROLLER:</b>", reply_markup=markup)
 
@@ -947,10 +1001,15 @@ def show_bot_controls_card(chat_id, owner_id, fname, message_id=None):
             ftype, status = ft, st
             break
 
-    if not ftype: return safe_send(chat_id, f"{CE('close')} <b>Instance record missing.</b>")
+    if not ftype:
+        return safe_send(chat_id, f"{CE('close')} <b>Instance record missing.</b>")
 
-    running = (status == "approved" and is_bot_running(owner_id, fname))
-    st_text = f"{CE('done')} ONLINE & RUNNING" if running else f"{CE('close')} STOPPED"
+    if status == "pending":
+        st_text = f"{CE('loading')} PENDING ADMIN APPROVAL"
+    elif is_bot_running(owner_id, fname):
+        st_text = f"{CE('done')} ONLINE & RUNNING"
+    else:
+        st_text = f"{CE('close')} STOPPED"
 
     card_text = (
         f"{CE('diamond')} <b>CONTAINER CONTROLLER #{fname}</b>\n"
@@ -961,16 +1020,19 @@ def show_bot_controls_card(chat_id, owner_id, fname, message_id=None):
     )
 
     markup = types.InlineKeyboardMarkup(row_width=2)
-    if running:
-        markup.add(
-            cbtn("Stop Process", callback_data=f"bact_stop_{owner_id}_{fname}", style="danger", icon="stop"),
-            cbtn("Restart Process", callback_data=f"bact_restart_{owner_id}_{fname}", style="primary", icon="restart")
-        )
+    if status == "approved":
+        if is_bot_running(owner_id, fname):
+            markup.add(
+                cbtn("Stop Process", callback_data=f"bact_stop_{owner_id}_{fname}", style="danger", icon="stop"),
+                cbtn("Restart Process", callback_data=f"bact_restart_{owner_id}_{fname}", style="primary", icon="restart")
+            )
+        else:
+            markup.add(
+                cbtn("Start Process", callback_data=f"bact_start_{owner_id}_{fname}", style="success", icon="play"),
+                cbtn("Delete Container", callback_data=f"bact_del_{owner_id}_{fname}", style="danger", icon="delete")
+            )
     else:
-        markup.add(
-            cbtn("Start Process", callback_data=f"bact_start_{owner_id}_{fname}", style="success", icon="play"),
-            cbtn("Delete Container", callback_data=f"bact_del_{owner_id}_{fname}", style="danger", icon="delete")
-        )
+        markup.add(cbtn("Delete Container", callback_data=f"bact_del_{owner_id}_{fname}", style="danger", icon="delete"))
 
     markup.add(
         cbtn("Terminal Logs", callback_data=f"bact_logs_{owner_id}_{fname}", style="primary", icon="logs"),
@@ -983,6 +1045,35 @@ def show_bot_controls_card(chat_id, owner_id, fname, message_id=None):
     else:
         safe_send(chat_id, card_text, reply_markup=markup)
 
+# ─── REAL PURGE / BOT DELETION ENGINE ──────────────────────────────────────
+def execute_permanent_bot_delete(owner_id, fname, executed_by_admin=False):
+    """Terminates process, deletes files, logs, and clears database entries completely."""
+    skey = f"{owner_id}_{fname}"
+    if skey in bot_scripts:
+        kill_process_tree(bot_scripts[skey])
+        bot_scripts.pop(skey, None)
+
+    remove_user_file_db(owner_id, fname)
+
+    user_folder = get_user_folder(owner_id)
+    main_file = os.path.join(user_folder, fname)
+    log_file = os.path.join(user_folder, f"{os.path.splitext(fname)[0]}.log")
+
+    try:
+        if os.path.exists(main_file):
+            os.remove(main_file)
+    except Exception as e:
+        logger.error(f"Failed to delete {main_file}: {e}")
+
+    try:
+        if os.path.exists(log_file):
+            os.remove(log_file)
+    except Exception as e:
+        logger.error(f"Failed to delete {log_file}: {e}")
+
+    if executed_by_admin and owner_id != OWNER_ID:
+        safe_send(owner_id, f"{CE('delete')} <b>Administrative Notice:</b>\nYour bot container <code>{fname}</code> was deleted by the administration and purged from the server.")
+
 # ─── CALLBACK QUERY ENGINE ─────────────────────────────────────────────────
 @bot.callback_query_handler(func=lambda call: True)
 def handle_all_callbacks(call):
@@ -994,6 +1085,16 @@ def handle_all_callbacks(call):
     if data == "verify_fsub":
         command_start(call.message)
         bot.answer_callback_query(call.id, "Verified!")
+        return
+
+    if data == "deposit_binance":
+        trigger_deposit_binance(chat_id, user_id)
+        bot.answer_callback_query(call.id)
+        return
+
+    if data == "view_plans":
+        show_plans_menu(chat_id, user_id)
+        bot.answer_callback_query(call.id)
         return
 
     if data.startswith("skip_req_"):
@@ -1030,16 +1131,14 @@ def handle_all_callbacks(call):
         fid = data.replace("rjct_", "")
         info = pending_approvals.pop(fid, None)
         if info:
-            remove_user_file_db(info["user_id"], info["file_name"])
-            try: os.remove(info["file_path"])
-            except Exception: pass
-            safe_send(info["user_id"], f"{CE('close')} <b>Your deployment request for <code>{info['file_name']}</code> was rejected by administrators.</b>")
+            execute_permanent_bot_delete(info["user_id"], info["file_name"])
+            safe_send(info["user_id"], f"{CE('close')} <b>Your deployment request for <code>{info['file_name']}</code> was rejected and removed.</b>")
         bot.answer_callback_query(call.id, "Rejected.")
         safe_edit(chat_id, call.message.message_id, f"{CE('close')} <b>Container Rejected & Purged.</b>")
         return
 
     if data.startswith("appdep_"):
-        if user_id != OWNER_ID: return
+        if user_id != OWNER_ID and user_id not in admin_ids: return
         _, dep_id, target_uid = data.split("_")
         dep_id, target_uid = int(dep_id), int(target_uid)
 
@@ -1049,7 +1148,7 @@ def handle_all_callbacks(call):
         return
 
     if data.startswith("rejdep_"):
-        if user_id != OWNER_ID: return
+        if user_id != OWNER_ID and user_id not in admin_ids: return
         _, dep_id, target_uid = data.split("_")
         with DB_LOCK:
             conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
@@ -1110,7 +1209,16 @@ def handle_all_callbacks(call):
         act, owner_id, fname = parts[1], int(parts[2]), parts[3]
         if user_id != owner_id and user_id not in admin_ids: return
 
+        # Check status
+        ftype, st = None, None
+        for fn, ft, s in user_files.get(owner_id, []):
+            if fn == fname:
+                ftype, st = ft, s
+                break
+
         if act == "start":
+            if st != "approved":
+                return bot.answer_callback_query(call.id, "Cannot start: This bot is pending admin approval.", show_alert=True)
             fpath = os.path.join(get_user_folder(owner_id), fname)
             threading.Thread(target=run_script, args=(fpath, owner_id, get_user_folder(owner_id), fname, None)).start()
             time.sleep(1.5)
@@ -1126,6 +1234,8 @@ def handle_all_callbacks(call):
             show_bot_controls_card(chat_id, owner_id, fname, call.message.message_id)
 
         elif act == "restart":
+            if st != "approved":
+                return bot.answer_callback_query(call.id, "Cannot restart: Bot not approved yet.", show_alert=True)
             skey = f"{owner_id}_{fname}"
             if skey in bot_scripts:
                 kill_process_tree(bot_scripts[skey])
@@ -1157,19 +1267,51 @@ def handle_all_callbacks(call):
             bot.answer_callback_query(call.id, "Backup Generated!")
 
         elif act == "del":
-            skey = f"{owner_id}_{fname}"
-            if skey in bot_scripts:
-                kill_process_tree(bot_scripts[skey])
-                bot_scripts.pop(skey, None)
-            remove_user_file_db(owner_id, fname)
-            fpath = os.path.join(get_user_folder(owner_id), fname)
-            if os.path.exists(fpath): os.remove(fpath)
-            bot.answer_callback_query(call.id, "Instance Deleted!")
-            safe_edit(chat_id, call.message.message_id, f"{CE('delete')} <b>Instance <code>{fname}</code> permanently purged.</b>")
+            is_adm = (user_id in admin_ids or user_id == OWNER_ID)
+            execute_permanent_bot_delete(owner_id, fname, executed_by_admin=is_adm)
+            bot.answer_callback_query(call.id, "Bot completely deleted!")
+            safe_edit(chat_id, call.message.message_id, f"{CE('delete')} <b>Bot container <code>{fname}</code> has been completely terminated & purged.</b>")
 
         return
 
     # --- Admin Operations ---
+    if data == "adm_binance_cfg" and (user_id in admin_ids or user_id == OWNER_ID):
+        show_binance_config_panel(chat_id, call.message.message_id)
+        bot.answer_callback_query(call.id)
+        return
+
+    if data == "adm_toggle_binance" and (user_id in admin_ids or user_id == OWNER_ID):
+        cur = get_setting("binance_enabled", "1") == "1"
+        new_val = "0" if cur else "1"
+        set_setting("binance_enabled", new_val)
+        show_binance_config_panel(chat_id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Gateway Status Updated!")
+        return
+
+    if data == "adm_set_pay_id" and (user_id in admin_ids or user_id == OWNER_ID):
+        msg = safe_send(chat_id, f"{CE('binance')} <b>Enter new Binance Pay ID:</b>")
+        bot.register_next_step_handler(msg, process_set_binance_pay_id)
+        bot.answer_callback_query(call.id)
+        return
+
+    if data == "adm_set_usdt_addr" and (user_id in admin_ids or user_id == OWNER_ID):
+        msg = safe_send(chat_id, f"{CE('wallet')} <b>Enter new Binance USDT Deposit Address:</b>")
+        bot.register_next_step_handler(msg, process_set_binance_usdt_address)
+        bot.answer_callback_query(call.id)
+        return
+
+    if data == "adm_change_db" and (user_id in admin_ids or user_id == OWNER_ID):
+        msg = safe_send(chat_id, f"{CE('world')} <b>DATABASE SWITCHER:</b>\nEnter database file name (e.g. <code>custom_data.db</code>):\n<i>The system will link to this DB immediately and reload all data.</i>")
+        bot.register_next_step_handler(msg, process_switch_database)
+        bot.answer_callback_query(call.id)
+        return
+
+    if data == "adm_bots_sms" and (user_id in admin_ids or user_id == OWNER_ID):
+        msg = safe_send(chat_id, f"{CE('sms')} <b>BROADCAST TO HOSTED BOT OWNERS:</b>\nSend the message text. It will be delivered only to users with at least 1 hosted bot:\n<i>Send /cancel to abort.</i>")
+        bot.register_next_step_handler(msg, process_all_bot_owners_sms)
+        bot.answer_callback_query(call.id)
+        return
+
     if data == "adm_plans_mgr" and (user_id in admin_ids or user_id == OWNER_ID):
         plans = get_all_plans()
         text = f"{CE('diamond')} <b>PLAN MANAGER CONSOLE</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1201,9 +1343,9 @@ def handle_all_callbacks(call):
         count = 0
         for uid, files in user_files.items():
             for fn, ft, st in files:
-                running = is_bot_running(uid, fn)
+                running = (st == "approved" and is_bot_running(uid, fn))
                 st_icon = "done" if running else "close"
-                markup.add(cbtn(f"{fn} ({uid})", callback_data=f"ctl_{uid}_{fn}", style="primary", icon=st_icon))
+                markup.add(cbtn(f"{fn} ({uid}) [{'ON' if running else 'OFF'}]", callback_data=f"ctl_{uid}_{fn}", style="primary", icon=st_icon))
                 count += 1
         markup.add(cbtn("Back to Admin Console", callback_data="admin_console", style="primary", icon="arrow_right"))
         safe_send(chat_id, f"{CE('trader')} <b>GLOBAL INSTANCES MONITOR ({count} Bots):</b>", reply_markup=markup)
@@ -1217,7 +1359,7 @@ def handle_all_callbacks(call):
         return
 
     if data == "adm_broadcast":
-        msg = safe_send(chat_id, f"{CE('notice')} <b>Send the announcement text you wish to broadcast to all users:</b>\n<i>Send /cancel to abort.</i>")
+        msg = safe_send(chat_id, f"{CE('notice')} <b>Send announcement text to broadcast to ALL network users:</b>\n<i>Send /cancel to abort.</i>")
         bot.register_next_step_handler(msg, process_broadcast_transmission)
         bot.answer_callback_query(call.id)
         return
@@ -1230,7 +1372,7 @@ def handle_all_callbacks(call):
                     fpath = os.path.join(get_user_folder(uid), fn)
                     threading.Thread(target=run_script, args=(fpath, uid, get_user_folder(uid), fn, None)).start()
                     count += 1
-        safe_send(chat_id, f"{CE('done')} <b>Rebooted {count} idle worker instances.</b>")
+        safe_send(chat_id, f"{CE('done')} <b>Rebooted {count} approved worker instances.</b>")
         bot.answer_callback_query(call.id)
         return
 
@@ -1261,6 +1403,58 @@ def handle_all_callbacks(call):
         return
 
 # ─── ADMIN STEP HANDLERS ───────────────────────────────────────────────────
+def process_set_binance_pay_id(message):
+    new_id = message.text.strip()
+    if new_id:
+        set_setting("binance_pay_id", new_id)
+        safe_send(message.chat.id, f"{CE('done')} <b>Binance Pay ID updated to:</b> <code>{new_id}</code>")
+    else:
+        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Pay ID provided.</b>")
+
+def process_set_binance_usdt_address(message):
+    new_addr = message.text.strip()
+    if new_addr:
+        set_setting("binance_usdt_address", new_addr)
+        safe_send(message.chat.id, f"{CE('done')} <b>Binance USDT Address updated to:</b>\n<code>{new_addr}</code>")
+    else:
+        safe_send(message.chat.id, f"{CE('close')} <b>Invalid USDT address provided.</b>")
+
+def process_switch_database(message):
+    global DATABASE_PATH
+    db_name = message.text.strip()
+    if not db_name.endswith(".db"):
+        db_name += ".db"
+
+    new_path = os.path.join(DATABASE_DIR, db_name)
+    try:
+        DATABASE_PATH = new_path
+        init_db()
+        load_data()
+        safe_send(message.chat.id, f"{CE('done')} <b>Database Switched Successfully!</b>\nActive DB: <code>{db_name}</code>\nTables initialized & cached data reloaded.")
+    except Exception as e:
+        safe_send(message.chat.id, f"{CE('close')} <b>Database Connection Error:</b> {e}")
+
+def process_all_bot_owners_sms(message):
+    text = message.text or ""
+    if text == "/cancel":
+        return safe_send(message.chat.id, f"{CE('close')} <b>Bot Owners SMS Cancelled.</b>")
+
+    target_user_ids = [uid for uid, files in user_files.items() if len(files) > 0]
+    if not target_user_ids:
+        return safe_send(message.chat.id, f"{CE('notice')} <b>No active bot owners found to message.</b>")
+
+    status_m = safe_send(message.chat.id, f"{CE('loading')} <i>Delivering SMS to {len(target_user_ids)} bot owners...</i>")
+    sent, failed = 0, 0
+    for uid in target_user_ids:
+        try:
+            safe_send(uid, f"{CE('sms')} <b>IMPORTANT HOSTING NOTICE:</b>\n\n{text}")
+            sent += 1
+            time.sleep(0.04)
+        except Exception:
+            failed += 1
+
+    safe_edit(message.chat.id, status_m.message_id, f"{CE('done')} <b>Hosted Bot SMS Finished!</b>\nDelivered: <code>{sent}</code> | Failed: <code>{failed}</code>.")
+
 def process_deposit_approval_amount(message, dep_id, target_uid):
     try:
         amount = float(message.text.strip())
@@ -1289,7 +1483,7 @@ def process_deposit_approval_amount(message, dep_id, target_uid):
         safe_send(message.chat.id, f"{CE('done')} <b>Deposit #{dep_id} Approved! User <code>{target_uid}</code> credited with <code>${amount:.2f}</code> (New Balance: <code>${new_bal:.2f}</code>).</b>")
         safe_send(target_uid, f"{CE('done')} <b>Deposit Confirmed!</b> <code>${amount:.2f} USD</code> has been credited to your Cloud Wallet. Available: <code>${new_bal:.2f}</code>.")
     except Exception as e:
-        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Amount figure:</b> {e}")
+        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Amount:</b> {e}")
 
 def process_add_plan_step(message):
     try:
@@ -1366,7 +1560,7 @@ def _logic_upload_file(message):
     limit = get_user_file_limit(user_id)
     if get_user_file_count(user_id) >= limit:
         return safe_send(message.chat.id, f"{CE('close')} <b>Container Quota Full ({get_user_file_count(user_id)}/{limit})!</b> Upgrade your tier to deploy more bots.")
-    safe_send(message.chat.id, f"{CE('up')} <b>Send your .py, .js, or .zip project file document now.</b>\n<i>Our pre-flight engine will inspect and stage your container for launch.</i>")
+    safe_send(message.chat.id, f"{CE('up')} <b>Send your .py, .js, or .zip project file document now.</b>\n<i>Our pre-flight engine will inspect and stage your container for admin approval.</i>")
 
 def _logic_speed(message):
     start = time.time()
@@ -1441,7 +1635,7 @@ def run_polling():
         except telebot.apihelper.ApiTelegramException as e:
             print(f"[!] Telegram API Exception: {e}")
             if "Conflict" in str(e):
-                print("[!] 409 Conflict: Old deployment instance still active on Render. Waiting 15s...")
+                print("[!] 409 Conflict: Waiting 15s...")
                 time.sleep(15)
             else:
                 time.sleep(5)
@@ -1454,20 +1648,16 @@ if __name__ == "__main__":
     print(f" NEBULA HOST CLOUD - PRODUCTION READY ")
     print(f" Super Admin ID: {OWNER_ID}")
     print(f" Support: {YOUR_USERNAME}")
-    print(" Payment: Only Binance Pay & USDT")
+    print(" Payment: Only Binance Pay & USDT (Admin Toggleable)")
     print(" Deploy Resilience: 409 Conflict & Port Healthcheck Safe")
     print("=" * 60)
 
-    # Clean shutdown hook
     atexit.register(lambda: [kill_process_tree(p) for p in bot_scripts.values()])
 
-    # Start background threads safely inside main
     threading.Thread(target=expiry_cron_loop, daemon=True).start()
 
-    # Start Flask Webserver in background thread
     t_flask = Thread(target=run_flask_server)
     t_flask.daemon = True
     t_flask.start()
 
-    # Start Infinity Polling on Main Thread
     run_polling()
