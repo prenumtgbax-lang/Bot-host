@@ -1,13 +1,24 @@
-aiogram==3.15.0
-psutil==5.9.8
-aiohttp==3.10.10
-pydantic==2.9.2
-magic-filter==1.0.12
-aiofiles==24.1.0
-multidict==6.1.0
-yarl==1.15.2
-frozenlist==1.4.1
-aiosignal==1.3.1
-attrs==24.2.0
-certifi==2024.8.30
-typing_extensions==4.12.2
+# ── মূল হোস্টিং বট ফ্রেমওয়ার্ক ও সার্ভার প্যাকেজ ──
+pyTelegramBotAPI>=4.15.0
+Flask>=3.0.0
+requests>=2.31.0
+psutil>=5.9.0
+cryptography>=42.0.0
+
+# ── নেটওয়ার্ক ও অ্যাসিনক্রোনাস লাইব্রেরি ──
+aiohttp>=3.9.0
+urllib3>=2.0.0
+
+# ── হোস্ট করা ইউজারদের বটের জন্য কমন লাইব্রেরি ──
+aiogram>=3.4.0
+python-telegram-bot>=21.0
+pyrogram>=2.0.106
+telethon>=1.34.0
+tgcrypto>=1.2.5
+
+# ── ইউটিলিটি, ডাটা ও ইমেজ প্রসেসিং ──
+beautifulsoup4>=4.12.0
+Pillow>=10.2.0
+python-dotenv>=1.0.0
+PyYAML>=6.0.1
+pytz>=2024.1
