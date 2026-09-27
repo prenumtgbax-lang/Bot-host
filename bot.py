@@ -90,7 +90,7 @@ FORCE_SUB_CHANNELS = [
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_BOTS_DIR = os.path.join(BASE_DIR, "upload_bots")
 DATABASE_DIR = os.path.join(BASE_DIR, "database_store")
-DATABASE_PATH = os.path.join(DATABASE_DIR, "nebulahjddjjost.db")
+DATABASE_PATH = os.path.join(DATABASE_DIR, "nebulahjd22djjost.db")
 BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
 
 FREE_USER_LIMIT = 1
