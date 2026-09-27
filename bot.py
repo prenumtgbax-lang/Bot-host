@@ -1,73 +1,94 @@
+# -*- coding: utf-8 -*-
 """
-Telegram Host Bot (Python & Node.js Cloud Hosting Platform)
-Target Admin: 2014144404
-Default Support: @YourDomains
-Language: English (Styled UI / Custom Emojis & Button Colors)
-Framework: Aiogram 3.x + SQLite3 + Subprocess Manager
-Database: nebulahost.db
+╔═══════════════════════════════════════════════════════════════════════════╗
+║              NEBULA CLOUD HOSTING BOT — FULL ADVANCED EDITION             ║
+║                                                                           ║
+║  • Target Admin ID: 2014144404                                            ║
+║  • Support: @YourDomains                                                  ║
+║  • Token: 8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI                 ║
+║  • Auto Module Guide, Interactive Installer & Crash Log Engine            ║
+║  • Dynamic Plans, Approval System & Full Multi-Subprocess Hosting         ║
+║  • Zero Raw Unicode Emojis — 100% Telegram Custom Emoji IDs & Colors      ║
+╚═══════════════════════════════════════════════════════════════════════════╝
 """
 
-import os
-import sys
-import time
-import html
-import zipfile
-import shutil
-import asyncio
-import sqlite3
-import logging
-import subprocess
+import atexit
 from datetime import datetime, timedelta
-from typing import Dict, Tuple, Set, Optional
-
+import html
+import json
+import logging
+import mimetypes
+import os
+import re
+import shutil
+import signal
+import socket
+import sqlite3
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import zipfile
+from flask import Flask
+from threading import Thread
 import psutil
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import CommandStart, Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    FSInputFile
-)
+import telebot
+from telebot import types
 
-# ─── BUTTON COLOR & STYLE MONKEY PATCHING (Aiogram 3.x / Bot API 7.0+) ─────
-orig_ikb_dump = InlineKeyboardButton.model_dump
-def new_ikb_dump(self, *args, **kwargs):
-    d = orig_ikb_dump(self, *args, **kwargs)
-    if hasattr(self, 'style') and self.style:
-        d['style'] = self.style
-    if hasattr(self, 'icon_custom_emoji_id') and self.icon_custom_emoji_id:
-        d['icon_custom_emoji_id'] = self.icon_custom_emoji_id
-    return d
-InlineKeyboardButton.model_dump = new_ikb_dump
+# --- Flask Keep Alive ---
+app = Flask("")
 
-orig_kb_dump = KeyboardButton.model_dump
-def new_kb_dump(self, *args, **kwargs):
-    d = orig_kb_dump(self, *args, **kwargs)
-    if hasattr(self, 'style') and self.style:
-        d['style'] = self.style
-    if hasattr(self, 'icon_custom_emoji_id') and self.icon_custom_emoji_id:
-        d['icon_custom_emoji_id'] = self.icon_custom_emoji_id
-    return d
-KeyboardButton.model_dump = new_kb_dump
+@app.route("/")
+def home():
+    return "Nebula File Host Online"
 
-def ikb(text: str, callback_data: str = None, url: str = None, style: str = "primary", icon_id: str = None):
-    btn = InlineKeyboardButton(text=text, callback_data=callback_data, url=url)
-    if style: btn.style = style
-    if icon_id: btn.icon_custom_emoji_id = icon_id
-    return btn
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
-def rkb(text: str, style: str = "primary", icon_id: str = None):
-    btn = KeyboardButton(text=text)
-    if style: btn.style = style
-    if icon_id: btn.icon_custom_emoji_id = icon_id
-    return btn
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    print("Flask Keep-Alive server started.")
 
-# ─── CUSTOM TELEGRAM EMOJIS MAPPING ────────────────────────────────────────
+# --- Configuration (Previous Credentials Retained) ---
+TOKEN = "8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI"
+OWNER_ID = 2014144404
+ADMIN_ID = 2014144404
+YOUR_USERNAME = "@YourDomains"
+SUPPORT_CONTACT_ID = 2014144404
+UPDATE_CHANNEL = "https://t.me/YourChannel"
+
+# --- Force Subscribe Config ---
+FORCE_SUB_CHANNELS = [
+    {
+        "name": "Updates Channel",
+        "chat_id": "@YourChannel",
+        "url": "https://t.me/YourChannel",
+    }
+]
+
+# Folder setup
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+UPLOAD_BOTS_DIR = os.path.join(BASE_DIR, "upload_bots")
+IROTECH_DIR = os.path.join(BASE_DIR, "database_store")
+DATABASE_PATH = os.path.join(IROTECH_DIR, "nebulahost.db")
+
+# File upload limits
+FREE_USER_LIMIT = 3
+SUBSCRIBED_USER_LIMIT = 15
+ADMIN_LIMIT = 999
+OWNER_LIMIT = float("inf")
+
+os.makedirs(UPLOAD_BOTS_DIR, exist_ok=True)
+os.makedirs(IROTECH_DIR, exist_ok=True)
+
+bot = telebot.TeleBot(TOKEN)
+
+# ─── TELEGRAM CUSTOM EMOJIS MAPPING ────────────────────────────────────────
 EMOJIS = {
     "wallet": "6073556477824472025",
     "balance": "6073556477824472025",
@@ -84,7 +105,6 @@ EMOJIS = {
     "bkash": "6237975191784266396",
     "nagad": "6235336389647407554",
     "binance": "6237610939902858402",
-    "100": "6071051768861562054",
     "world": "6071096140168696563",
     "power": "6037220740967697584",
     "percent": "6039591820613127611",
@@ -107,1939 +127,1540 @@ EMOJIS = {
     "money": "6312104703815590263",
     "search": "6311848921333245664",
     "sparkle": "6314480331831385997",
-    "bell": "6314420734865185420",
     "star": "6314235179393096157"
 }
 
-def CE(key: str, fallback: str = "✨") -> str:
+def CE(key: str) -> str:
+    """Returns official custom Telegram emoji HTML element."""
     emoji_id = EMOJIS.get(key, "6314480331831385997")
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    return f'<tg-emoji emoji-id="{emoji_id}">•</tg-emoji>'
 
-# ─── CONFIGURATION ──────────────────────────────────────────────────────────
-BOT_TOKEN = "8675366388:AAGFTx2E3aJKA3Ahw8BKyne_ZNsTSF0wcBI"
-PRIMARY_ADMIN = 2014144404
-BOT_STORAGE_DIR = "hosted_bots"
-DB_FILE = "nebulahost1.db"
+# ---------------------------------------------------------------------------
+# Bot API 7.0+ colored-button & custom emoji icon compatibility patch
+# ---------------------------------------------------------------------------
+def _patch_button_style(button_cls):
+    _orig_init = button_cls.__init__
 
-os.makedirs(BOT_STORAGE_DIR, exist_ok=True)
-logging.basicConfig(level=logging.INFO)
+    def _new_init(self, *args, style=None, icon_custom_emoji_id=None, **kwargs):
+        _orig_init(self, *args, **kwargs)
+        self.style = style
+        self.icon_custom_emoji_id = icon_custom_emoji_id
 
-ACTIVE_PROCESSES: Dict[int, subprocess.Popen] = {}
+    button_cls.__init__ = _new_init
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+    for dict_method_name in ("to_dict", "to_dic"):
+        if hasattr(button_cls, dict_method_name):
+            _orig_dict_method = getattr(button_cls, dict_method_name)
 
-# ─── DATABASE INITIALIZATION ───────────────────────────────────────────────
+            def _new_dict_method(self, _orig=_orig_dict_method):
+                d = _orig(self)
+                if getattr(self, "style", None):
+                    d["style"] = self.style
+                if getattr(self, "icon_custom_emoji_id", None):
+                    d["icon_custom_emoji_id"] = self.icon_custom_emoji_id
+                return d
+
+            setattr(button_cls, dict_method_name, _new_dict_method)
+
+_patch_button_style(types.InlineKeyboardButton)
+_patch_button_style(types.KeyboardButton)
+
+def cbtn(text, callback_data=None, url=None, style="primary", icon=None):
+    icon_id = EMOJIS.get(icon) if icon else None
+    return types.InlineKeyboardButton(text, callback_data=callback_data, url=url, style=style, icon_custom_emoji_id=icon_id)
+
+def rkbtn(text, style="primary", icon=None):
+    icon_id = EMOJIS.get(icon) if icon else None
+    return types.KeyboardButton(text, style=style, icon_custom_emoji_id=icon_id)
+# ---------------------------------------------------------------------------
+
+# --- Data structures ---
+bot_scripts = {}
+user_subscriptions = {}
+user_files = {}
+active_users = set()
+admin_ids = {ADMIN_ID, OWNER_ID}
+user_profiles = {}
+banned_users = set()
+bot_settings_cache = {}
+user_limit_overrides = {}
+bot_locked = False
+user_selected_plan = {}
+
+# --- Malware Detection Configuration ---
+MALWARE_SIGNATURES = [
+    b"MZ", b"\x7fELF", b"\xfe\xed\xfa", b"\xce\xfa\xed\xfe"
+]
+
+SUSPICIOUS_KEYWORDS = [
+    b"ransomware", b"trojan", b"virus", b"malware",
+    b"backdoor", b"exploit", b"keylogger", b"rootkit",
+]
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+# --- Command Button Layouts (Clean text with colors & icons) ---
+COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
+    [("Updates Channel", "primary", "link")],
+    [("Upload File", "success", "up"), ("Check Files", "primary", "trader")],
+    [("Bot Speed", "primary", "speed"), ("Statistics", "primary", "trader")],
+    [("Contact Owner", "success", "support")],
+    [("Manual Install", "primary", "power"), ("Help Desk", "primary", "notice")],
+]
+
+ADMIN_COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
+    [("Updates Channel", "primary", "link")],
+    [("Upload File", "success", "up"), ("Check Files", "primary", "trader")],
+    [("Bot Speed", "primary", "speed"), ("Statistics", "primary", "trader")],
+    [("Contact Owner", "success", "support"), ("Admin Panel", "danger", "admin")],
+    [("Manual Install", "primary", "power"), ("Help Desk", "primary", "notice")],
+]
+
+# --- Database Setup ---
+DB_LOCK = threading.Lock()
+
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            balance REAL DEFAULT 0.0,
-            plan_id INTEGER DEFAULT 0,
-            plan_expiry TEXT DEFAULT NULL,
-            is_banned INTEGER DEFAULT 0,
-            joined_at TEXT,
-            trial_claimed INTEGER DEFAULT 0
-        )
-    ''')
-    
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS bots (
-            bot_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            bot_name TEXT,
-            bot_type TEXT,
-            folder_path TEXT,
-            entry_file TEXT,
-            status TEXT DEFAULT 'stopped',
-            created_at TEXT
-        )
-    ''')
-    
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS plans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            price REAL,
-            duration_days INTEGER,
-            max_bots INTEGER,
-            description TEXT
-        )
-    ''')
-    
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS force_channels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id TEXT UNIQUE,
-            title TEXT,
-            invite_link TEXT
-        )
-    ''')
-
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS deposit_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            method TEXT,
-            amount REAL,
-            trx_id TEXT,
-            photo_file_id TEXT,
-            status TEXT DEFAULT 'pending',
-            created_at TEXT
-        )
-    ''')
-    
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
-    
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS admins (
-            user_id INTEGER PRIMARY KEY
-        )
-    ''')
-
-    default_settings = {
-        "fsub_enabled": "1",
-        "bkash_number": "017XXXXXXXX",
-        "nagad_number": "018XXXXXXXX",
-        "binance_id": "12345678",
-        "support_user": "@YourDomains",
-        "trial_enabled": "1",
-        "trial_limit": "1",
-        "trial_days": "3",
-        "trial_max_bots": "1",
-        "trial_desc": "Experience high-speed cloud hosting for 3 days."
-    }
-    for k, v in default_settings.items():
-        cur.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
-        
-    cur.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (PRIMARY_ADMIN,))
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# ─── DATABASE & USER HELPERS ───────────────────────────────────────────────
-def get_db():
-    return sqlite3.connect(DB_FILE)
-
-def get_setting(key: str) -> str:
-    with get_db() as conn:
-        res = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        return res[0] if res else ""
-
-def set_setting(key: str, val: str):
-    with get_db() as conn:
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, val))
-        conn.commit()
-
-def is_admin(user_id: int) -> bool:
-    if user_id == PRIMARY_ADMIN:
-        return True
-    with get_db() as conn:
-        res = conn.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,)).fetchone()
-        return bool(res)
-
-def get_or_create_user(user_id: int, username: str = "N/A"):
-    with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        if not user:
-            conn.execute(
-                "INSERT INTO users (user_id, username, joined_at) VALUES (?, ?, ?)",
-                (user_id, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
-            conn.commit()
-            user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        return user
-
-def parse_iso_date(date_str: Optional[str]) -> Optional[datetime]:
-    if not date_str:
-        return None
-    date_str = date_str.strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    return None
-
-def get_user_plan_info(user_id: int):
-    """Reliably calculates plan duration and enforces bot quota."""
-    with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        if not user:
-            return None
-        
-        plan_id = user[3]
-        plan_expiry = user[4]
-        current_bots = conn.execute("SELECT COUNT(*) FROM bots WHERE user_id=?", (user_id,)).fetchone()[0]
-
-        if plan_id == 0 or not plan_expiry:
-            return {
-                "plan_name": "No Plan",
-                "max_bots": 0,
-                "current_bots": current_bots,
-                "is_active": False,
-                "remaining_str": "No Active Subscription",
-                "expiry": "N/A",
-                "plan_id": 0
-            }
-
-        now = datetime.now()
-        expiry_dt = parse_iso_date(plan_expiry)
-
-        if expiry_dt is None:
-            return {
-                "plan_name": "Active Plan",
-                "max_bots": 1,
-                "current_bots": current_bots,
-                "is_active": True,
-                "remaining_str": "Active",
-                "expiry": plan_expiry,
-                "plan_id": plan_id
-            }
-
-        if now >= expiry_dt:
-            conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (user_id,))
-            bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (user_id,)).fetchall()
-            for (b_id,) in bots:
-                stop_bot_instance(b_id)
-            conn.commit()
-            return {
-                "plan_name": "Plan Expired",
-                "max_bots": 0,
-                "current_bots": current_bots,
-                "is_active": False,
-                "remaining_str": "Expired",
-                "expiry": plan_expiry,
-                "plan_id": 0
-            }
-
-        diff = expiry_dt - now
-        days = diff.days
-        hours = diff.seconds // 3600
-        mins = (diff.seconds % 3600) // 60
-        remaining_str = f"{days}d {hours}h {mins}m remaining"
-
-        if plan_id == -1:
-            plan_name = "Free Trial"
-            max_bots = int(get_setting("trial_max_bots") or "1")
-        else:
-            p = conn.execute("SELECT name, max_bots FROM plans WHERE id=?", (plan_id,)).fetchone()
-            plan_name = p[0] if p else "Active Plan"
-            max_bots = p[1] if p else 1
-
-        return {
-            "plan_name": plan_name,
-            "max_bots": max_bots,
-            "current_bots": current_bots,
-            "is_active": True,
-            "remaining_str": remaining_str,
-            "expiry": plan_expiry,
-            "plan_id": plan_id
-        }
-
-# ─── PROCESS SUPERVISOR HELPER FUNCTIONS ───────────────────────────────────
-def kill_process_tree(proc: subprocess.Popen):
-    """Safely kills the process and all of its spawned children."""
+    logger.info(f"Initializing database at: {DATABASE_PATH}")
     try:
-        parent = psutil.Process(proc.pid)
-        for child in parent.children(recursive=True):
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("""CREATE TABLE IF NOT EXISTS subscriptions
+                     (user_id INTEGER PRIMARY KEY, plan_name TEXT, expiry TEXT, warned INTEGER DEFAULT 0, expired_notified INTEGER DEFAULT 0)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_files
+                     (user_id INTEGER, file_name TEXT, file_type TEXT, status TEXT DEFAULT 'approved',
+                      PRIMARY KEY (user_id, file_name))""")
+        c.execute("""CREATE TABLE IF NOT EXISTS active_users (user_id INTEGER PRIMARY KEY)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS plans
+                     (plan_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, file_limit INTEGER, price TEXT, duration INTEGER, buy_link TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS force_sub_channels
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, chat_id TEXT, url TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS bot_settings (key TEXT PRIMARY KEY, value TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_limits (user_id INTEGER PRIMARY KEY, file_limit INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_profiles
+                     (user_id INTEGER PRIMARY KEY, name TEXT, username TEXT, last_seen TEXT, joined_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS ban_log
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action TEXT, reason TEXT, admin_id INTEGER, timestamp TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS sales_log
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, plan_name TEXT, price TEXT, admin_id INTEGER, timestamp TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS banned_users (user_id INTEGER PRIMARY KEY, banned_at TEXT, reason TEXT)""")
+
+        c.execute("SELECT COUNT(*) FROM force_sub_channels")
+        if c.fetchone()[0] == 0:
+            for ch in FORCE_SUB_CHANNELS:
+                c.execute("INSERT INTO force_sub_channels (name, chat_id, url) VALUES (?, ?, ?)",
+                          (ch["name"], ch["chat_id"], ch["url"]))
+
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('update_channel', ?)", (UPDATE_CHANNEL,))
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('faq_text', 'Deploy python or node.js code 24/7 with zero latency.')")
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('terms_text', 'Malicious bots, root exploit attempts, or fork bombs will result in permanent ban.')")
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('free_user_limit', ?)", (str(FREE_USER_LIMIT),))
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('bot_off_message', 'System offline for scheduled upgrade.')")
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('auto_approve_paid', 'false')")
+        c.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('contact_owner_username', ?)", (YOUR_USERNAME,))
+
+        c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (OWNER_ID,))
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized successfully.")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}", exc_info=True)
+
+def load_data():
+    logger.info("Loading data from database...")
+    try:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+
+        c.execute("SELECT user_id, plan_name, expiry FROM subscriptions")
+        for row in c.fetchall():
+            user_id = row[0]
+            plan_name = row[1] if len(row) > 2 else "Premium"
+            expiry = row[-1]
             try:
-                child.terminate()
+                user_subscriptions[user_id] = {"plan_name": plan_name, "expiry": datetime.fromisoformat(expiry)}
             except Exception:
                 pass
-        parent.terminate()
-    except Exception:
-        try:
-            proc.terminate()
-        except Exception:
-            pass
 
-def launch_bot_instance(bot_id: int, folder: str, entry: str, btype: str) -> Tuple[bool, str]:
-    """Starts the bot subprocess and verifies execution health."""
-    log_file = os.path.join(folder, "output.log")
-    
-    if bot_id in ACTIVE_PROCESSES:
-        kill_process_tree(ACTIVE_PROCESSES[bot_id])
-        del ACTIVE_PROCESSES[bot_id]
+        c.execute("SELECT user_id, file_name, file_type, COALESCE(status, 'approved') FROM user_files")
+        for user_id, file_name, file_type, status in c.fetchall():
+            user_files.setdefault(user_id, []).append((file_name, file_type, status))
 
-    cmd = [sys.executable, entry] if btype == "python" else ["node", entry]
-    
-    try:
-        log_fp = open(log_file, "a", encoding="utf-8")
-        proc = subprocess.Popen(cmd, cwd=folder, stdout=log_fp, stderr=log_fp)
-        ACTIVE_PROCESSES[bot_id] = proc
+        c.execute("SELECT user_id FROM active_users")
+        active_users.update(uid for (uid,) in c.fetchall())
+
+        c.execute("SELECT user_id FROM admins")
+        admin_ids.update(uid for (uid,) in c.fetchall())
+
+        c.execute("SELECT id, name, chat_id, url FROM force_sub_channels")
+        rows = c.fetchall()
+        if rows:
+            FORCE_SUB_CHANNELS.clear()
+            for ch_id, name, chat_id, url in rows:
+                FORCE_SUB_CHANNELS.append({"db_id": ch_id, "name": name, "chat_id": chat_id, "url": url})
+
+        global UPDATE_CHANNEL
+        c.execute("SELECT value FROM bot_settings WHERE key = 'update_channel'")
+        row = c.fetchone()
+        if row: UPDATE_CHANNEL = row[0]
+
+        c.execute("SELECT key, value FROM bot_settings")
+        bot_settings_cache.update(dict(c.fetchall()))
+
+        c.execute("SELECT user_id, file_limit FROM user_limits")
+        for uid, lim in c.fetchall():
+            user_limit_overrides[uid] = lim
+
+        c.execute("SELECT user_id, name, username, last_seen, joined_at FROM user_profiles")
+        for uid, name, uname, last_seen, joined_at in c.fetchall():
+            user_profiles[uid] = {"name": name, "username": uname, "last_seen": last_seen, "joined_at": joined_at}
+
+        c.execute("SELECT user_id FROM banned_users")
+        banned_users.update(uid for (uid,) in c.fetchall())
+
+        conn.close()
+        logger.info("Data loaded successfully.")
     except Exception as e:
-        return False, f"Execution failed: {str(e)}"
+        logger.error(f"Error loading data: {e}", exc_info=True)
 
-    # Wait 1.5s to detect crash on launch
-    time.sleep(1.5)
-    poll_res = proc.poll()
-    if poll_res is not None:
-        del ACTIVE_PROCESSES[bot_id]
-        with get_db() as conn:
-            conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (bot_id,))
-            conn.commit()
+init_db()
+load_data()
+
+# --- Database Helper Operations ---
+def add_plan_db(name, file_limit, price, duration, buy_link):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT INTO plans (name, file_limit, price, duration, buy_link) VALUES (?, ?, ?, ?, ?)",
+                  (name, file_limit, price, duration, buy_link))
+        conn.commit()
+        conn.close()
+
+def get_all_plans():
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute("SELECT plan_id, name, file_limit, price, duration, buy_link FROM plans")
+    plans = c.fetchall()
+    conn.close()
+    return plans
+
+def get_plan_by_id(plan_id):
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute("SELECT plan_id, name, file_limit, price, duration, buy_link FROM plans WHERE plan_id = ?", (plan_id,))
+    plan = c.fetchone()
+    conn.close()
+    return plan
+
+def delete_plan_db(plan_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM plans WHERE plan_id = ?", (plan_id,))
+        conn.commit()
+        conn.close()
+
+# --- Security Functions ---
+def is_suspicious_file(file_content, file_name):
+    file_lower = file_name.lower()
+    suspicious_extensions = [".exe", ".dll", ".bat", ".cmd", ".msi", ".bin", ".apk", ".iso"]
+    if any(file_lower.endswith(ext) for ext in suspicious_extensions):
+        return True, f"Suspicious file extension: {file_name}"
+    for signature in MALWARE_SIGNATURES:
+        if file_content.startswith(signature):
+            return True, "Malware binary signature detected"
+    sample_text = file_content[:4096].decode("utf-8", errors="ignore").lower()
+    for keyword in SUSPICIOUS_KEYWORDS:
+        if keyword.decode("utf-8") in sample_text:
+            return True, f"Dangerous pattern signature found: {keyword.decode('utf-8')}"
+    return False, "File safe"
+
+def scan_file_for_malware(file_content, file_name, user_id):
+    if user_id == OWNER_ID:
+        return True, "Owner bypassed security check"
+    is_suspicious, reason = is_suspicious_file(file_content, file_name)
+    if is_suspicious:
+        return False, f"Security violation: {reason}"
+    return True, "File verified safe"
+
+def get_user_folder(user_id):
+    user_folder = os.path.join(UPLOAD_BOTS_DIR, str(user_id))
+    os.makedirs(user_folder, exist_ok=True)
+    return user_folder
+
+# --- Force Subscribe Helpers ---
+def get_unjoined_channels(user_id):
+    unjoined = []
+    for ch in FORCE_SUB_CHANNELS:
         try:
-            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                tail = "".join(f.readlines()[-20:])
-        except Exception:
-            tail = "Check output log file."
-        return False, f"Process crashed immediately on launch (Exit code: {poll_res}):\n{tail}"
+            member = bot.get_chat_member(ch["chat_id"], user_id)
+            if member.status in ("left", "kicked"):
+                unjoined.append(ch)
+        except Exception as e:
+            logger.warning(f"Force-sub check exception: {e}")
+    return unjoined
 
-    with get_db() as conn:
-        conn.execute("UPDATE bots SET status='running' WHERE bot_id=?", (bot_id,))
-        conn.commit()
-
-    return True, "Bot instance is running smoothly."
-
-def stop_bot_instance(bot_id: int):
-    """Gracefully terminates a bot instance and marks it stopped."""
-    if bot_id in ACTIVE_PROCESSES:
-        kill_process_tree(ACTIVE_PROCESSES[bot_id])
-        del ACTIVE_PROCESSES[bot_id]
-        
-    with get_db() as conn:
-        conn.execute("UPDATE bots SET status='stopped' WHERE bot_id=?", (bot_id,))
-        conn.commit()
-
-# ─── FSM STATES ─────────────────────────────────────────────────────────────
-class UserStates(StatesGroup):
-    uploading_bot = State()
-    waiting_for_requirements = State()
-    deposit_amount = State()
-    deposit_trx = State()
-    deposit_photo = State()
-
-class AdminStates(StatesGroup):
-    scanning_user = State()
-    adjust_balance = State()
-    add_plan = State()
-    broadcast_msg = State()
-    update_payment = State()
-    update_support = State()
-    add_admin = State()
-    remove_admin = State()
-    add_channel_link = State()
-    add_channel_id = State()
-    edit_trial_days = State()
-    edit_trial_bots = State()
-    edit_trial_limit = State()
-
-# ─── KEYBOARDS & NAVIGATION SHIELD ─────────────────────────────────────────
-MENU_BUTTON_TEXTS = ["Deploy Bot", "My Bots", "Plans", "Wallet & Balance", "Server Ping", "Support", "Admin Panel"]
-
-def main_reply_keyboard(user_id: int):
-    kb = [
-        [rkb("Deploy Bot", style="success", icon_id=EMOJIS["power"])],
-        [rkb("My Bots", style="primary", icon_id=EMOJIS["trader"]), rkb("Plans", style="primary", icon_id=EMOJIS["diamond"])],
-        [rkb("Wallet & Balance", style="success", icon_id=EMOJIS["wallet"])],
-        [rkb("Server Ping", style="primary", icon_id=EMOJIS["speed"]), rkb("Support", style="primary", icon_id=EMOJIS["support"])]
-    ]
-    if is_admin(user_id):
-        kb.append([rkb("Admin Panel", style="danger", icon_id=EMOJIS["admin"])])
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-
-def cancel_btn():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[ikb("Cancel Operation", callback_data="cancel_action", style="danger", icon_id=EMOJIS["close"])]]
+def send_force_sub_prompt(chat_id, unjoined_channels):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for ch in unjoined_channels:
+        markup.add(cbtn(ch["name"], url=ch["url"], style="primary", icon="link"))
+    markup.add(cbtn("Verify Membership", callback_data="verify_fsub", style="success", icon="done"))
+    safe_send(
+        chat_id,
+        f"{CE('shield')} <b>Channel Membership Required!</b>\n\n"
+        f"Please join our verified channels below, then tap Verify Membership to unlock hosting slots.",
+        reply_markup=markup
     )
 
-async def check_menu_button_escape(message: types.Message, state: FSMContext) -> bool:
-    text = message.text or ""
-    uid = message.from_user.id
-    if text.startswith("/start"):
-        await state.clear()
-        await start_handler(message, state)
+def enforce_force_sub(user_id, chat_id):
+    if user_id == OWNER_ID or user_id in admin_ids:
         return True
-    if any(b in text for b in MENU_BUTTON_TEXTS):
-        await state.clear()
-        if "Deploy Bot" in text:
-            await upload_prompt(message, state)
-        elif "My Bots" in text:
-            await my_bots_list(message)
-        elif "Plans" in text:
-            await plans_handler(message)
-        elif "Wallet & Balance" in text:
-            await wallet_handler(message)
-        elif "Server Ping" in text:
-            await ping_handler(message)
-        elif "Support" in text:
-            await support_handler(message)
-        elif "Admin Panel" in text:
-            if is_admin(uid):
-                await admin_panel_root(message)
-        return True
-    return False
-
-# ─── FORCE SUBSCRIBE MIDDLEWARE CHECK ──────────────────────────────────────
-async def check_all_fsub(user_id: int) -> bool:
-    if get_setting("fsub_enabled") != "1" or is_admin(user_id):
-        return True
-    with get_db() as conn:
-        channels = conn.execute("SELECT chat_id FROM force_channels").fetchall()
-    if not channels:
-        return True
-    for (chat_id,) in channels:
-        try:
-            cid = int(chat_id) if (chat_id.startswith("-") and chat_id[1:].isdigit()) or chat_id.isdigit() else chat_id
-            member = await bot.get_chat_member(chat_id=cid, user_id=user_id)
-            if member.status in ["left", "kicked"]:
-                return False
-        except Exception as e:
-            logging.error(f"FSUB verification error for {chat_id}: {e}")
-            return False
+    unjoined = get_unjoined_channels(user_id)
+    if unjoined:
+        send_force_sub_prompt(chat_id, unjoined)
+        return False
     return True
 
-def get_fsub_keyboard():
-    with get_db() as conn:
-        channels = conn.execute("SELECT title, invite_link FROM force_channels").fetchall()
-    buttons = []
-    for title, link in channels:
-        buttons.append([ikb(f"Join {title}", url=link, style="primary", icon_id=EMOJIS["link"])])
-    buttons.append([ikb("Verify Membership", callback_data="verify_fsub", style="success", icon_id=EMOJIS["done"])])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+def get_user_file_limit(user_id):
+    if user_id in user_limit_overrides:
+        return user_limit_overrides[user_id]
+    if user_id == OWNER_ID:
+        return OWNER_LIMIT
+    if user_id in admin_ids:
+        return ADMIN_LIMIT
+    if user_id in user_subscriptions and user_subscriptions[user_id]["expiry"] > datetime.now():
+        return SUBSCRIBED_USER_LIMIT
+    return get_free_user_limit()
 
-# ─── START COMMAND & PROFILE ───────────────────────────────────────────────
-@dp.message(CommandStart())
-async def start_handler(message: types.Message, state: FSMContext = None):
-    if state:
-        await state.clear()
-        
+def get_user_file_count(user_id):
+    return len(user_files.get(user_id, []))
+
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+def is_bot_running(script_owner_id, file_name):
+    script_key = f"{script_owner_id}_{file_name}"
+    script_info = bot_scripts.get(script_key)
+    if script_info and script_info.get("process"):
+        try:
+            proc = psutil.Process(script_info["process"].pid)
+            is_running = proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+            if not is_running:
+                if "log_file" in script_info and not script_info["log_file"].closed:
+                    script_info["log_file"].close()
+                bot_scripts.pop(script_key, None)
+            return is_running
+        except Exception:
+            bot_scripts.pop(script_key, None)
+            return False
+    return False
+
+def kill_process_tree(process_info):
+    try:
+        if "log_file" in process_info and not process_info["log_file"].closed:
+            process_info["log_file"].close()
+        process = process_info.get("process")
+        if process and hasattr(process, "pid") and process.pid:
+            parent = psutil.Process(process.pid)
+            for child in parent.children(recursive=True):
+                try: child.terminate()
+                except Exception: pass
+            parent.terminate()
+    except Exception as e:
+        logger.error(f"Error killing process: {e}")
+
+# --- Module / Package Mapping ---
+TELEGRAM_MODULES = {
+    "telebot": "pyTelegramBotAPI",
+    "telegram": "python-telegram-bot",
+    "python_telegram_bot": "python-telegram-bot",
+    "aiogram": "aiogram",
+    "pyrogram": "pyrogram",
+    "telethon": "telethon",
+    "bs4": "beautifulsoup4",
+    "requests": "requests",
+    "pillow": "Pillow",
+    "pil": "Pillow",
+    "cv2": "opencv-python",
+    "flask": "Flask",
+    "psutil": "psutil",
+    "cryptography": "cryptography",
+    "aiohttp": "aiohttp"
+}
+
+def monitor_and_guide_error(process, log_file_path, script_owner_id, file_name, message_obj_for_reply):
+    time.sleep(3)
+    if process.poll() is not None:
+        try:
+            with open(log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                log_content = f.read()
+
+            match_py = re.search(r"(?:ModuleNotFoundError|ImportError): No module named '(.+?)'", log_content)
+            match_js = re.search(r"Cannot find module '(.+?)'", log_content)
+
+            missing_module = None
+            if match_py: missing_module = match_py.group(1).split(".")[0].strip("'\"")
+            elif match_js: missing_module = match_js.group(1).split("/")[0].strip("'\"")
+
+            if missing_module:
+                pkg_name = TELEGRAM_MODULES.get(missing_module.lower(), missing_module)
+                ext = os.path.splitext(file_name)[1].lower()
+                cmd_text = f"npm install {pkg_name}" if ext == ".js" else f"pip install {pkg_name}"
+
+                error_msg = (
+                    f"{CE('notice')} <b>Execution Stopped: Missing Dependency</b>\n\n"
+                    f"{CE('link')} <b>File:</b> <code>{file_name}</code>\n"
+                    f"{CE('close')} <b>Missing Module:</b> <code>{missing_module}</code>\n"
+                    f"{CE('speed')} <b>Required Package:</b> <code>{cmd_text}</code>\n\n"
+                    f"<i>Tap below to auto-install this library directly:</i>"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(cbtn(f"Install {pkg_name}", callback_data=f"instmod_{script_owner_id}_{missing_module}_{file_name}", style="success", icon="up"))
+                markup.add(cbtn("Terminal Logs", callback_data=f"viewlog_{script_owner_id}_{file_name}", style="primary", icon="logs"))
+                safe_send(script_owner_id, error_msg, reply_markup=markup)
+            else:
+                error_msg = (
+                    f"{CE('notice')} <b>Runtime Execution Warning!</b>\n\n"
+                    f"{CE('link')} <b>File:</b> <code>{file_name}</code>\n"
+                    f"<i>The container process stopped unexpectedly. View terminal logs below:</i>"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(cbtn("Terminal Logs", callback_data=f"viewlog_{script_owner_id}_{file_name}", style="primary", icon="logs"))
+                safe_send(script_owner_id, error_msg, reply_markup=markup)
+        except Exception as e:
+            logger.error(f"Error checking log file: {e}")
+
+def safe_next_step(msg, callback):
+    def wrapper(message):
+        text = message.text or ""
+        user_id = message.from_user.id
+        if text in BUTTON_MAPPING or text.startswith("/"):
+            if is_banned(user_id):
+                safe_send(message.chat.id, f"{CE('notice')} <b>You are restricted from using this bot.</b>")
+                return
+            if bot_locked and user_id not in admin_ids:
+                safe_send(message.chat.id, get_bot_off_message())
+                return
+            if text == "/start":
+                _logic_send_welcome(message)
+            elif text == "/plans":
+                if enforce_force_sub(user_id, message.chat.id):
+                    _logic_view_plans(message)
+            elif text == "/checkfiles":
+                if enforce_force_sub(user_id, message.chat.id):
+                    _logic_check_files(message)
+            elif text in BUTTON_MAPPING:
+                if enforce_force_sub(user_id, message.chat.id):
+                    touch_last_seen(user_id)
+                    BUTTON_MAPPING[text](message)
+            return
+        callback(message)
+    bot.register_next_step_handler(msg, wrapper)
+
+def notify_admin_log(text):
+    for aid in admin_ids | {OWNER_ID}:
+        try: safe_send(aid, text)
+        except Exception: pass
+
+def run_script(script_path, script_owner_id, user_folder, file_name, message_obj_for_reply):
+    script_key = f"{script_owner_id}_{file_name}"
+    try:
+        log_file_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
+        log_file = open(log_file_path, "w", encoding="utf-8", errors="ignore")
+        script_env = os.environ.copy()
+        script_env["PORT"] = str(get_free_port())
+        process = subprocess.Popen(
+            [sys.executable, script_path],
+            cwd=user_folder,
+            stdout=log_file,
+            stderr=log_file,
+            stdin=subprocess.PIPE,
+            env=script_env,
+        )
+
+        bot_scripts[script_key] = {
+            "process": process,
+            "log_file": log_file,
+            "file_name": file_name,
+            "script_owner_id": script_owner_id,
+            "start_time": datetime.now(),
+            "user_folder": user_folder,
+            "type": "py",
+            "script_key": script_key,
+        }
+
+        safe_send(
+            script_owner_id,
+            f"{CE('done')} <b>Python Script Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)"
+        )
+        notify_admin_log(
+            f"{CE('power')} <b>Worker Container Started</b>\n\n"
+            f"{CE('trader')} <b>User:</b> <code>{script_owner_id}</code>\n"
+            f"{CE('link')} <b>File:</b> <code>{file_name}</code>\n"
+            f"{CE('date')} <b>Time:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>"
+        )
+        threading.Thread(
+            target=monitor_and_guide_error,
+            args=(process, log_file_path, script_owner_id, file_name, message_obj_for_reply)
+        ).start()
+    except Exception as e:
+        safe_send(script_owner_id, f"{CE('close')} <b>Process Failure:</b> <code>{str(e)}</code>")
+
+def run_js_script(script_path, script_owner_id, user_folder, file_name, message_obj_for_reply):
+    script_key = f"{script_owner_id}_{file_name}"
+    try:
+        log_file_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
+        log_file = open(log_file_path, "w", encoding="utf-8", errors="ignore")
+        script_env = os.environ.copy()
+        script_env["PORT"] = str(get_free_port())
+        process = subprocess.Popen(
+            ["node", script_path],
+            cwd=user_folder,
+            stdout=log_file,
+            stderr=log_file,
+            stdin=subprocess.PIPE,
+            env=script_env,
+        )
+
+        bot_scripts[script_key] = {
+            "process": process,
+            "log_file": log_file,
+            "file_name": file_name,
+            "script_owner_id": script_owner_id,
+            "start_time": datetime.now(),
+            "user_folder": user_folder,
+            "type": "js",
+            "script_key": script_key,
+        }
+
+        safe_send(
+            script_owner_id,
+            f"{CE('done')} <b>Node.js Script Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)"
+        )
+        notify_admin_log(
+            f"{CE('power')} <b>Worker Container Started</b>\n\n"
+            f"{CE('trader')} <b>User:</b> <code>{script_owner_id}</code>\n"
+            f"{CE('link')} <b>File:</b> <code>{file_name}</code>\n"
+            f"{CE('date')} <b>Time:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>"
+        )
+        threading.Thread(
+            target=monitor_and_guide_error,
+            args=(process, log_file_path, script_owner_id, file_name, message_obj_for_reply)
+        ).start()
+    except Exception as e:
+        safe_send(script_owner_id, f"{CE('close')} <b>Process Failure:</b> <code>{str(e)}</code>")
+
+def save_user_file(user_id, file_name, file_type="py", status="approved"):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO user_files (user_id, file_name, file_type, status) VALUES (?, ?, ?, ?)",
+                  (user_id, file_name, file_type, status))
+        conn.commit()
+        conn.close()
+        user_files.setdefault(user_id, [])
+        user_files[user_id] = [(fn, ft, st) for fn, ft, st in user_files[user_id] if fn != file_name]
+        user_files[user_id].append((file_name, file_type, status))
+
+def update_file_status_db(user_id, file_name, status):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("UPDATE user_files SET status=? WHERE user_id=? AND file_name=?", (status, user_id, file_name))
+        conn.commit()
+        conn.close()
+        if user_id in user_files:
+            user_files[user_id] = [(fn, ft, status) if fn == file_name else (fn, ft, st) for fn, ft, st in user_files[user_id]]
+
+def get_file_record(user_id, file_name):
+    for fn, ft, st in user_files.get(user_id, []):
+        if fn == file_name:
+            return ft, st
+    return None, None
+
+def remove_user_file_db(user_id, file_name):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM user_files WHERE user_id = ? AND file_name = ?", (user_id, file_name))
+        conn.commit()
+        conn.close()
+        if user_id in user_files:
+            user_files[user_id] = [f for f in user_files[user_id] if f[0] != file_name]
+
+def add_active_user(user_id):
+    active_users.add(user_id)
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO active_users (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+        conn.close()
+
+def save_subscription(user_id, plan_name, expiry):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan_name, expiry, warned, expired_notified) VALUES (?, ?, ?, 0, 0)",
+                  (user_id, plan_name, expiry.isoformat()))
+        conn.commit()
+        conn.close()
+        user_subscriptions[user_id] = {"plan_name": plan_name, "expiry": expiry}
+
+def remove_subscription_db(user_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        user_subscriptions.pop(user_id, None)
+
+def add_force_sub_channel_db(name, chat_id, url):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT INTO force_sub_channels (name, chat_id, url) VALUES (?, ?, ?)", (name, chat_id, url))
+        new_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        FORCE_SUB_CHANNELS.append({"db_id": new_id, "name": name, "chat_id": chat_id, "url": url})
+
+def remove_force_sub_channel_db(db_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM force_sub_channels WHERE id = ?", (db_id,))
+        conn.commit()
+        conn.close()
+        FORCE_SUB_CHANNELS[:] = [ch for ch in FORCE_SUB_CHANNELS if ch.get("db_id") != db_id]
+
+def set_update_channel_db(new_link):
+    global UPDATE_CHANNEL
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO bot_settings (key, value) VALUES ('update_channel', ?)", (new_link,))
+        conn.commit()
+        conn.close()
+        UPDATE_CHANNEL = new_link
+
+def get_setting(key, default=""):
+    return bot_settings_cache.get(key, default)
+
+def set_setting(key, value):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+        conn.close()
+        bot_settings_cache[key] = value
+
+def get_faq_text():
+    return f"{CE('notice')} <b>FREQUENTLY ASKED QUESTIONS</b>\n\n{get_setting('faq_text', 'Deploy 24/7 bots with isolated resource allocations.')}"
+
+def get_terms_text():
+    return f"{CE('shield')} <b>TERMS & CONDITIONS</b>\n\n{get_setting('terms_text', 'Abusive scripts and unauthorized scrapers are prohibited.')}"
+
+def get_free_user_limit():
+    try: return int(get_setting("free_user_limit", str(FREE_USER_LIMIT)))
+    except Exception: return FREE_USER_LIMIT
+
+def get_bot_off_message():
+    return get_setting("bot_off_message", f"{CE('notice')} <b>Server Maintenance Active. Try again later.</b>")
+
+def is_auto_approve_paid_enabled():
+    return get_setting("auto_approve_paid", "false") == "true"
+
+def get_contact_owner_username():
+    return get_setting("contact_owner_username", YOUR_USERNAME)
+
+def has_active_subscription(user_id):
+    return user_id in user_subscriptions and user_subscriptions[user_id]["expiry"] > datetime.now()
+
+def set_user_limit_override(user_id, limit):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO user_limits (user_id, file_limit) VALUES (?, ?)", (user_id, limit))
+        conn.commit()
+        conn.close()
+        user_limit_overrides[user_id] = limit
+
+def remove_user_limit_override(user_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM user_limits WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        user_limit_overrides.pop(user_id, None)
+
+def ban_user_db(user_id, reason=None, admin_id=None):
+    now = datetime.now().isoformat()
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO banned_users (user_id, banned_at, reason) VALUES (?, ?, ?)", (user_id, now, reason))
+        c.execute("INSERT INTO ban_log (user_id, action, reason, admin_id, timestamp) VALUES (?, 'ban', ?, ?, ?)", (user_id, reason, admin_id, now))
+        conn.commit()
+        conn.close()
+        banned_users.add(user_id)
+
+def unban_user_db(user_id, admin_id=None):
+    now = datetime.now().isoformat()
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM banned_users WHERE user_id = ?", (user_id,))
+        c.execute("INSERT INTO ban_log (user_id, action, reason, admin_id, timestamp) VALUES (?, 'unban', NULL, ?, ?)", (user_id, admin_id, now))
+        conn.commit()
+        conn.close()
+        banned_users.discard(user_id)
+
+def get_ban_log(user_id=None, limit=20):
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    c = conn.cursor()
+    if user_id is not None:
+        c.execute("SELECT user_id, action, reason, admin_id, timestamp FROM ban_log WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
+    else:
+        c.execute("SELECT user_id, action, reason, admin_id, timestamp FROM ban_log ORDER BY id DESC LIMIT ?", (limit,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def log_sale(user_id, plan_name, price, admin_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT INTO sales_log (user_id, plan_name, price, admin_id, timestamp) VALUES (?, ?, ?, ?, ?)",
+                  (user_id, plan_name, price, admin_id, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+
+def get_sales_log(limit=200):
+    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute("SELECT user_id, plan_name, price, admin_id, timestamp FROM sales_log ORDER BY id DESC LIMIT ?", (limit,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def is_banned(user_id):
+    return user_id in banned_users and user_id != OWNER_ID
+
+def save_user_profile(user_id, name, username):
+    now = datetime.now().isoformat()
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT joined_at FROM user_profiles WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+        joined_at = row[0] if row and row[0] else now
+        c.execute("INSERT OR REPLACE INTO user_profiles (user_id, name, username, last_seen, joined_at) VALUES (?, ?, ?, ?, ?)",
+                  (user_id, name, username, now, joined_at))
+        conn.commit()
+        conn.close()
+        user_profiles[user_id] = {"name": name, "username": username, "last_seen": now, "joined_at": joined_at}
+
+def touch_last_seen(user_id):
+    if user_id not in user_profiles: return
+    now = datetime.now().isoformat()
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("UPDATE user_profiles SET last_seen = ? WHERE user_id = ?", (now, user_id))
+        conn.commit()
+        conn.close()
+        user_profiles[user_id]["last_seen"] = now
+
+def add_admin_db(user_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+        conn.close()
+        admin_ids.add(user_id)
+
+def remove_admin_db(user_id):
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        admin_ids.discard(user_id)
+
+# --- Clean Keyboards (No Raw Emojis) ---
+def create_reply_keyboard_main_menu(user_id):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    layout = ADMIN_COMMAND_BUTTONS_LAYOUT_USER_SPEC if user_id in admin_ids else COMMAND_BUTTONS_LAYOUT_USER_SPEC
+    for row in layout:
+        row_btns = [rkbtn(txt, style=st, icon=ic) for txt, st, ic in row]
+        markup.add(*row_btns)
+    return markup
+
+def create_admin_panel_inline():
+    pending_count = sum(1 for files in user_files.values() for _, _, st in files if st == "pending")
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        cbtn("Add Plan", callback_data="add_plan_init", style="success", icon="up"),
+        cbtn("Manage Plans", callback_data="manage_plans", style="danger", icon="delete"),
+    )
+    markup.add(
+        cbtn("Add Subscription", callback_data="add_subscription", style="primary", icon="diamond"),
+        cbtn("Remove Sub", callback_data="remove_subscription", style="danger", icon="close"),
+    )
+    markup.add(
+        cbtn("Add Admin", callback_data="add_admin", style="primary", icon="crown"),
+        cbtn("Remove Admin", callback_data="remove_admin", style="primary", icon="delete"),
+    )
+    markup.add(
+        cbtn("Broadcast", callback_data="broadcast", style="primary", icon="notice"),
+        cbtn("Message One User", callback_data="broadcast_one_init", style="primary", icon="sms"),
+    )
+    markup.add(
+        cbtn("Lock / Unlock", callback_data="toggle_lock", style="primary", icon="power"),
+    )
+    markup.add(
+        cbtn("Run All Scripts", callback_data="run_all_scripts", style="primary", icon="play"),
+        cbtn("Bot Stats", callback_data="stats", style="primary", icon="trader"),
+    )
+    markup.add(
+        cbtn("Add Force Channel", callback_data="add_force_channel", style="success", icon="link"),
+        cbtn("Manage Force Channels", callback_data="manage_force_channels", style="danger", icon="delete"),
+    )
+    markup.add(
+        cbtn("Change Update Channel", callback_data="change_update_channel", style="primary", icon="link"),
+    )
+    markup.add(
+        cbtn("Change Owner Username", callback_data="change_owner_username_init", style="primary", icon="support"),
+    )
+    markup.add(
+        cbtn("All Users", callback_data="all_users", style="primary", icon="trader"),
+        cbtn("Check User", callback_data="check_user_init", style="primary", icon="search"),
+    )
+    markup.add(
+        cbtn("Ban User", callback_data="ban_user_init", style="danger", icon="delete"),
+        cbtn("Unban User", callback_data="unban_user_init", style="success", icon="done"),
+    )
+    markup.add(
+        cbtn("Ban Log", callback_data="ban_log_init", style="primary", icon="logs"),
+    )
+    markup.add(
+        cbtn("Bulk Delete", callback_data="bulk_delete_init", style="danger", icon="delete"),
+        cbtn("Bulk Approve", callback_data="bulk_approve", style="success", icon="done"),
+    )
+    markup.add(
+        cbtn(f"Pending Approvals ({pending_count})", callback_data="pending_approvals", style="primary", icon="loading"),
+    )
+    markup.add(
+        cbtn("All Files", callback_data="all_files", style="primary", icon="trader"),
+        cbtn("Running Bots", callback_data="running_bots", style="primary", icon="play"),
+    )
+    markup.add(
+        cbtn("Stop All Bots", callback_data="stop_all_bots", style="danger", icon="stop"),
+    )
+    markup.add(
+        cbtn("Growth Stats", callback_data="growth_stats", style="primary", icon="trader"),
+        cbtn("Inactive Users", callback_data="inactive_users", style="primary", icon="notice"),
+    )
+    markup.add(
+        cbtn("Revenue Report", callback_data="revenue_report", style="primary", icon="money"),
+    )
+    markup.add(
+        cbtn("Edit FAQ", callback_data="edit_faq_init", style="primary", icon="notice"),
+        cbtn("Edit Terms", callback_data="edit_terms_init", style="primary", icon="logs"),
+    )
+    markup.add(
+        cbtn("Edit Bot Off Message", callback_data="edit_bot_off_msg_init", style="primary", icon="notice"),
+    )
+    markup.add(
+        cbtn(f"Auto-Approve Paid: {'ON' if is_auto_approve_paid_enabled() else 'OFF'}",
+             callback_data="toggle_auto_approve_paid", style="success" if is_auto_approve_paid_enabled() else "danger", icon="done"),
+    )
+    markup.add(
+        cbtn("Change Free Limit", callback_data="change_free_limit_init", style="primary", icon="power"),
+    )
+    markup.add(
+        cbtn("Set User File Limit", callback_data="set_user_limit_init", style="primary", icon="power"),
+    )
+    return markup
+
+def _logic_send_welcome(message):
     user_id = message.from_user.id
-    username = message.from_user.username or "N/A"
-    
-    user = get_or_create_user(user_id, username)
-    if user[5] == 1:
-        return await message.answer(
-            f"{CE('notice')} <b>Account Restricted!</b>\n\nYour profile has been prohibited from accessing hosting infrastructure.",
-            parse_mode="HTML"
+    chat_id = message.chat.id
+    user_name = message.from_user.first_name
+    username = message.from_user.username
+
+    if is_banned(user_id):
+        safe_send(chat_id, f"{CE('notice')} <b>You are restricted from using this bot.</b>")
+        return
+
+    if bot_locked and user_id not in admin_ids:
+        safe_send(chat_id, get_bot_off_message())
+        return
+
+    if not enforce_force_sub(user_id, chat_id):
+        return
+
+    _send_actual_welcome(user_id, chat_id, user_name, username)
+
+def get_user_status_line(user_id):
+    if user_id == OWNER_ID:
+        return "Root Administrator"
+    elif user_id in admin_ids:
+        return "Authorized Admin"
+    elif user_id in user_subscriptions and user_subscriptions[user_id]["expiry"] > datetime.now():
+        sub = user_subscriptions[user_id]
+        days_left = (sub["expiry"] - datetime.now()).days
+        return f"{sub.get('plan_name', 'Premium')} ({days_left} Days remaining)"
+    else:
+        return "Free Tier Account"
+
+def _send_actual_welcome(user_id, chat_id, user_name, username):
+    is_new_user = user_id not in active_users
+    save_user_profile(user_id, user_name, username)
+    if is_new_user:
+        add_active_user(user_id)
+        now = datetime.now()
+        notify_admin_log(
+            f"{CE('sparkle')} <b>New User Registered!</b>\n\n"
+            f"{CE('trader')} <b>Name:</b> {html.escape(user_name or 'Unknown')}\n"
+            f"{CE('telegram')} <b>Username:</b> @{username or 'N/A'}\n"
+            f"{CE('link')} <b>User ID:</b> <code>{user_id}</code>\n"
+            f"{CE('date')} <b>Date:</b> <code>{now.strftime('%Y-%m-%d %H:%M:%S')}</code>"
         )
 
-    if not await check_all_fsub(user_id):
-        return await message.answer(
-            f"{CE('shield')} <b>Channel Membership Required!</b>\n\n"
-            f"Please subscribe to our verified updates channels below to unlock cloud hosting slots:",
-            reply_markup=get_fsub_keyboard(),
-            parse_mode="HTML"
-        )
-
-    plan_info = get_user_plan_info(user_id)
-    balance = user[2]
-
-    profile_text = (
+    status_line = get_user_status_line(user_id)
+    welcome_msg = (
         f"{CE('crown')} <b>NEBULA CLOUD HOSTING ENGINE</b> {CE('fire')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>Holder:</b> <code>{message.from_user.full_name}</code>\n"
-        f"{CE('link')} <b>User ID:</b> <code>{user_id}</code>\n"
-        f"{CE('telegram')} <b>Username:</b> @{username}\n"
-        f"{CE('wallet')} <b>Balance:</b> <code>{balance:.2f} ৳</code>\n"
-        f"{CE('diamond')} <b>Active Plan:</b> <code>{plan_info['plan_name']}</code>\n"
-        f"{CE('date')} <b>Validity:</b> <code>{plan_info['remaining_str']}</code>\n"
-        f"{CE('power')} <b>Deployments:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']} Used</code>\n"
+        f"{CE('trader')} <b>Holder:</b> <code>{html.escape(user_name or 'User')}</code>\n"
+        f"{CE('link')} <b>Account ID:</b> <code>{user_id}</code>\n"
+        f"{CE('shield')} <b>Authority:</b> <code>{status_line}</code>\n"
+        f"{CE('power')} <b>Allocated Slots:</b> <code>{get_user_file_count(user_id)} / {get_user_file_limit(user_id)}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('speed')} <i>High-performance isolated Subprocess execution (Python & Node.js).</i>\n"
-        f"<i>Select an option from the menu buttons below:</i>"
+        f"{CE('speed')} <i>High-performance subprocess execution for Python and Node.js.</i>\n"
+        f"<i>Select an option below to initiate actions:</i>"
     )
-    await message.answer(profile_text, reply_markup=main_reply_keyboard(user_id), parse_mode="HTML")
+    safe_send(chat_id, welcome_msg, reply_markup=create_reply_keyboard_main_menu(user_id))
 
-@dp.callback_query(F.data == "verify_fsub")
-async def verify_fsub_callback(callback: types.CallbackQuery):
-    if await check_all_fsub(callback.from_user.id):
-        await callback.message.delete()
-        await callback.message.answer(
-            f"{CE('done')} <b>Verification Complete!</b> Welcome to Nebula Cloud.",
-            reply_markup=main_reply_keyboard(callback.from_user.id),
-            parse_mode="HTML"
-        )
-    else:
-        await callback.answer("❌ You still haven't joined all required channels!", show_alert=True)
+def _logic_view_plans(message_or_call):
+    chat_id = message_or_call.chat.id if isinstance(message_or_call, telebot.types.Message) else message_or_call.message.chat.id
+    plans = get_all_plans()
 
-# ─── PING & HOST METRICS ───────────────────────────────────────────────────
-@dp.message(F.text.contains("Server Ping"))
-async def ping_handler(message: types.Message):
-    start = time.time()
-    msg = await message.answer(f"{CE('loading')} <i>Querying host hardware parameters...</i>", parse_mode="HTML")
-    latency = round((time.time() - start) * 1000, 2)
-    
-    cpu_usage = psutil.cpu_percent()
-    ram = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
-
-    diag_text = (
-        f"{CE('speed')} <b>HOST HARDWARE DIAGNOSTICS</b> {CE('power')}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('done')} <b>Network Latency:</b> <code>{latency} ms</code>\n"
-        f"{CE('boom')} <b>CPU Usage:</b> <code>{cpu_usage}%</code>\n"
-        f"{CE('diamond')} <b>RAM Load:</b> <code>{ram.percent}%</code> ({round(ram.used / (1024**3), 2)}GB / {round(ram.total / (1024**3), 2)}GB)\n"
-        f"{CE('world')} <b>Disk Storage:</b> <code>{disk.percent}%</code> ({round(disk.free / (1024**3), 2)}GB Free)\n"
-        f"{CE('trader')} <b>Active Worker PIDs:</b> <code>{len(ACTIVE_PROCESSES)}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('shield')} <b>Server Condition: 100% Operational & Safe</b>"
-    )
-    await msg.edit_text(diag_text, parse_mode="HTML")
-
-# ─── SUPPORT DESK ──────────────────────────────────────────────────────────
-@dp.message(F.text.contains("Support"))
-async def support_handler(message: types.Message):
-    handle = get_setting("support_user") or "@YourDomains"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Contact Support Desk", url=f"https://t.me/{handle.replace('@', '')}", style="primary", icon_id=EMOJIS["support"])]
-    ])
-    await message.answer(
-        f"{CE('support')} <b>DEDICATED HELPDESK & CARE</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Need assistance with dependencies, deployments, or custom resource quotas?\n\n"
-        f"{CE('link')} <b>Official Consultant:</b> <code>{handle}</code>\n"
-        f"{CE('date')} <b>Availability:</b> 24/7 Priority Support",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-
-# ─── WALLET & BALANCE ──────────────────────────────────────────────────────
-@dp.message(F.text.contains("Wallet & Balance"))
-async def wallet_handler(message: types.Message):
-    user_id = message.from_user.id
-    user = get_or_create_user(user_id, message.from_user.username or "N/A")
-    balance = user[2]
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Add Balance (Deposit)", callback_data="start_deposit", style="success", icon_id=EMOJIS["wallet"])],
-        [ikb("Browse Subscriptions", callback_data="view_plans", style="primary", icon_id=EMOJIS["diamond"])]
-    ])
-    
-    await message.answer(
-        f"{CE('wallet')} <b>YOUR PERSONAL CLOUD WALLET</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('money')} <b>Current Balance:</b> <code>{balance:.2f} ৳</code>\n"
-        f"{CE('arrow_right')} <i>Use your available wallet balance to purchase and activate hosting plans.</i>",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-
-# ─── PLANS & SUBSCRIPTIONS (REAL-TIME EXPIRY & REMAINING TIME) ─────────────
-@dp.message(F.text.contains("Plans"))
-@dp.callback_query(F.data == "view_plans")
-async def plans_handler(event: types.Message | types.CallbackQuery):
-    message = event if isinstance(event, types.Message) else event.message
-    user_id = event.from_user.id
-
-    user = get_or_create_user(user_id, event.from_user.username or "N/A")
-    plan_info = get_user_plan_info(user_id)
-
-    with get_db() as conn:
-        plans = conn.execute("SELECT * FROM plans ORDER BY price ASC").fetchall()
-
-    text = (
-        f"{CE('diamond')} <b>CLOUD HOSTING SUBSCRIPTIONS</b> {CE('fire')}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('crown')} <b>Active Tier:</b> <code>{plan_info['plan_name']}</code>\n"
-        f"{CE('date')} <b>Remaining Validity:</b> <code>{plan_info['remaining_str']}</code>\n"
-        f"{CE('power')} <b>Deployment Slots:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']} Used</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    )
-    buttons = []
-    
-    # 1. Free Trial Plan
-    trial_enabled = get_setting("trial_enabled") == "1"
-    trial_days = get_setting("trial_days") or "3"
-    trial_max_bots = get_setting("trial_max_bots") or "1"
-    trial_limit = int(get_setting("trial_limit") or "1")
-    trial_desc = get_setting("trial_desc") or "Fast cloud hosting trial"
-    trial_claimed = user[7] if user and len(user) > 7 else 0
-
-    if trial_enabled:
-        text += (
-            f"{CE('gift')} <b>Tier:</b> <code>Free Trial</code>\n"
-            f"{CE('money')} <b>Price:</b> <code>0.00 ৳</code>\n"
-            f"{CE('date')} <b>Duration:</b> <code>{trial_days} Days</code>\n"
-            f"{CE('power')} <b>Quota:</b> <code>{trial_max_bots} Bot Slot(s)</code>\n"
-            f"{CE('notice')} <b>Details:</b> <i>{trial_desc}</i>\n"
-            f"{CE('trader')} <b>Claimed:</b> <code>{trial_claimed}/{trial_limit} Time(s)</code>\n"
-            f"────────────────────────────\n"
-        )
-        if plan_info["is_active"] and plan_info["plan_id"] == -1:
-            buttons.append([ikb(f"Free Trial Active ({plan_info['remaining_str']})", callback_data="plan_already_active", style="success", icon_id=EMOJIS["done"])])
-        elif trial_claimed >= trial_limit:
-            buttons.append([ikb("Free Trial Limit Exhausted", callback_data="trial_limit_reached", style="danger", icon_id=EMOJIS["close"])])
-        else:
-            buttons.append([ikb(f"Claim Free Trial ({trial_days} Days)", callback_data="claim_free_trial", style="success", icon_id=EMOJIS["gift"])])
-
-    # 2. Paid Subscription Plans
     if not plans:
-        text += f"<i>No paid subscription tiers are currently available.</i>\n"
-
-    for p in plans:
-        text += (
-            f"{CE('crown')} <b>Tier:</b> <code>{p[1]}</code>\n"
-            f"{CE('money')} <b>Price:</b> <code>{p[2]:.2f} ৳</code>\n"
-            f"{CE('date')} <b>Duration:</b> <code>{p[3]} Days</code>\n"
-            f"{CE('power')} <b>Quota:</b> <code>{p[4]} Bot Slot(s)</code>\n"
-            f"{CE('notice')} <b>Details:</b> <i>{p[5]}</i>\n"
-            f"────────────────────────────\n"
-        )
-        if plan_info["is_active"] and plan_info["plan_id"] == p[0]:
-            buttons.append([ikb(f"{p[1]} Active ({plan_info['remaining_str']})", callback_data="plan_already_active", style="success", icon_id=EMOJIS["done"])])
-        else:
-            buttons.append([ikb(f"Purchase {p[1]} - {p[2]:.2f} ৳ ({p[3]} Days)", callback_data=f"buyplan_{p[0]}", style="primary", icon_id=EMOJIS["arrow_right"])])
-        
-    buttons.append([ikb("Add Balance to Wallet", callback_data="start_deposit", style="success", icon_id=EMOJIS["wallet"])])
-    
-    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-    if isinstance(event, types.CallbackQuery):
-        await event.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-    else:
-        await message.answer(text, reply_markup=markup, parse_mode="HTML")
-
-@dp.callback_query(F.data == "plan_already_active")
-async def plan_active_alert(callback: types.CallbackQuery):
-    await callback.answer("⚠️ This subscription tier is already active on your account! Renew when it expires.", show_alert=True)
-
-@dp.callback_query(F.data == "trial_limit_reached")
-async def trial_limit_alert(callback: types.CallbackQuery):
-    await callback.answer("❌ You have already exhausted your free trial claim allowance!", show_alert=True)
-
-@dp.callback_query(F.data == "claim_free_trial")
-async def claim_trial_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    user = get_or_create_user(user_id, callback.from_user.username or "N/A")
-    plan_info = get_user_plan_info(user_id)
-
-    trial_limit = int(get_setting("trial_limit") or "1")
-    trial_claimed = user[7] if len(user) > 7 else 0
-    trial_days = int(get_setting("trial_days") or "3")
-
-    if plan_info["is_active"] and plan_info["plan_id"] == -1:
-        return await callback.answer("⚠️ Free trial is already active on your account!", show_alert=True)
-    if trial_claimed >= trial_limit:
-        return await callback.answer("❌ You have reached your free trial limit!", show_alert=True)
-
-    expiry = (datetime.now() + timedelta(days=trial_days)).strftime("%Y-%m-%d %H:%M:%S")
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE users SET plan_id=-1, plan_expiry=?, trial_claimed=trial_claimed+1 WHERE user_id=?",
-            (expiry, user_id)
-        )
-        conn.commit()
-
-    await callback.message.edit_text(
-        f"{CE('done')} <b>Free Trial Activated!</b>\n\n"
-        f"{CE('date')} <b>Validity:</b> <code>{trial_days} Days</code> (Expires: <code>{expiry}</code>)\n"
-        f"{CE('power')} <b>Allowed Bots:</b> <code>{get_setting('trial_max_bots') or '1'}</code>\n\n"
-        f"You can now proceed to <b>Deploy Bot</b> from the main menu.",
-        parse_mode="HTML"
-    )
-
-@dp.callback_query(F.data.startswith("buyplan_"))
-async def process_buy_plan(callback: types.CallbackQuery):
-    plan_id = int(callback.data.split("_")[1])
-    user_id = callback.from_user.id
-    
-    with get_db() as conn:
-        plan = conn.execute("SELECT * FROM plans WHERE id=?", (plan_id,)).fetchone()
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        
-        if not plan:
-            return await callback.answer("❌ Invalid Subscription Tier!", show_alert=True)
-            
-        cost = plan[2]
-        if user[2] < cost:
-            return await callback.answer(f"❌ Insufficient Balance! You need {cost:.2f} ৳. Please deposit first.", show_alert=True)
-
-        plan_info = get_user_plan_info(user_id)
-        if plan_info["is_active"] and plan_info["plan_id"] == plan_id:
-            return await callback.answer("⚠️ You already have this plan active!", show_alert=True)
-            
-        new_balance = user[2] - cost
-        expiry = (datetime.now() + timedelta(days=plan[3])).strftime("%Y-%m-%d %H:%M:%S")
-        conn.execute("UPDATE users SET balance=?, plan_id=?, plan_expiry=? WHERE user_id=?", (new_balance, plan_id, expiry, user_id))
-        conn.commit()
-        
-    await callback.message.edit_text(
-        f"{CE('done')} <b>Subscription Activated!</b>\n\n"
-        f"{CE('crown')} <b>Tier:</b> <code>{plan[1]}</code>\n"
-        f"{CE('money')} <b>Paid:</b> <code>{cost:.2f} ৳</code>\n"
-        f"{CE('date')} <b>Valid For:</b> <code>{plan[3]} Days</code> (Expires: <code>{expiry}</code>)\n"
-        f"{CE('power')} <b>Deployment Slots:</b> <code>{plan[4]} Bot(s)</code>\n\n"
-        f"<i>Your server slots have been updated.</i>",
-        parse_mode="HTML"
-    )
-
-# ─── DEPOSIT & PAYMENT SYSTEM (WITH NAVIGATION ESCAPE) ─────────────────────
-@dp.callback_query(F.data == "start_deposit")
-async def deposit_methods_menu(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("bKash Personal", callback_data="paymeth_bKash", style="primary", icon_id=EMOJIS["bkash"])],
-        [ikb("Nagad Personal", callback_data="paymeth_Nagad", style="primary", icon_id=EMOJIS["nagad"])],
-        [ikb("Binance Pay", callback_data="paymeth_Binance", style="primary", icon_id=EMOJIS["binance"])],
-        [ikb("Cancel", callback_data="cancel_action", style="danger", icon_id=EMOJIS["close"])]
-    ])
-    await callback.message.edit_text(
-        f"{CE('wallet')} <b>SELECT PAYMENT CHANNEL</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Choose your desired payment gateway from below to load money into your wallet:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-
-@dp.callback_query(F.data.startswith("paymeth_"))
-async def method_chosen(callback: types.CallbackQuery, state: FSMContext):
-    method = callback.data.split("_")[1]
-    await state.update_data(method=method)
-
-    number = ""
-    if method == "bKash":
-        number = get_setting("bkash_number")
-    elif method == "Nagad":
-        number = get_setting("nagad_number")
-    elif method == "Binance":
-        number = get_setting("binance_id")
-
-    text = (
-        f"{CE('wallet')} <b>PAYMENT INSTRUCTIONS ({method.upper()})</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Send Money to our official address below:\n\n"
-        f"{CE('link')} <b>Account / Pay ID:</b> <code>{number}</code> (Tap to Copy)\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('arrow_right')} <b>Step 1:</b> Enter the amount you have sent (in ৳):"
-    )
-    await callback.message.edit_text(text, reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(UserStates.deposit_amount)
-
-@dp.message(UserStates.deposit_amount)
-async def process_deposit_amount(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
+        safe_send(chat_id, f"{CE('notice')} <b>No active plans found.</b>")
         return
 
-    try:
-        amount = float(message.text.strip())
-        if amount <= 0:
-            raise ValueError
-    except ValueError:
-        return await message.answer(
-            f"{CE('close')} <b>Invalid amount!</b> Please write numerical figures only (e.g. <code>100</code>).",
-            reply_markup=cancel_btn(),
-            parse_mode="HTML"
+    safe_send(chat_id, f"{CE('diamond')} <b>AVAILABLE SUBSCRIPTION PACKAGES:</b>")
+    for plan in plans:
+        plan_id, name, limit, price, duration, buy_link = plan
+        card_text = (
+            f"{CE('crown')} <b>Tier:</b> <code>{name}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"{CE('power')} <b>Quota:</b> <code>{limit} Bots</code>\n"
+            f"{CE('date')} <b>Duration:</b> <code>{duration} Days</code>\n"
+            f"{CE('money')} <b>Price:</b> <code>{price}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Payment Methods: bKash, Nagad, Binance Pay</i>"
         )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(cbtn("Contact Owner to Purchase", url=f"https://t.me/{get_contact_owner_username().lstrip('@')}", style="success", icon="support"))
+        safe_send(chat_id, card_text, reply_markup=markup)
 
-    await state.update_data(amount=amount)
-    await message.answer(
-        f"{CE('sms')} <b>Step 2:</b> Please provide your transaction ID (TrxID):\n\n"
-        f"<i>Example:</i> <code>9JAHSD9812</code>",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(UserStates.deposit_trx)
-
-@dp.message(UserStates.deposit_trx)
-async def process_deposit_trx(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-
-    trx_id = message.text.strip()
-    await state.update_data(trx_id=trx_id)
-    await message.answer(
-        f"{CE('up')} <b>Step 3:</b> Now upload a clear <b>screenshot / proof photo</b> of your payment transaction:",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(UserStates.deposit_photo)
-
-@dp.message(UserStates.deposit_photo, F.photo)
-async def process_deposit_photo(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    await state.clear()
-    
-    photo_file_id = message.photo[-1].file_id
+def _logic_upload_file(message):
     user_id = message.from_user.id
-    username = message.from_user.username or "N/A"
-    method = data.get('method', 'Manual')
-    amount = data.get('amount', 0.0)
-    trx_id = data.get('trx_id', 'N/A')
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if bot_locked and user_id not in admin_ids:
+        safe_send(message.chat.id, get_bot_off_message())
+        return
 
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO deposit_requests (user_id, method, amount, trx_id, photo_file_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, method, amount, trx_id, photo_file_id, now_str)
+    current_count = get_user_file_count(user_id)
+    limit = get_user_file_limit(user_id)
+
+    if current_count >= limit:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(cbtn("View Plans & Upgrade", callback_data="view_plans_cb", style="primary", icon="diamond"))
+        safe_send(
+            message.chat.id,
+            f"{CE('close')} <b>Container Quota Exhausted ({current_count}/{limit})!</b>\n\nUpgrade your tier to deploy more instances.",
+            reply_markup=markup
         )
-        conn.commit()
-        req_id = cur.lastrowid
+        return
 
-    admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            ikb("Approve", callback_data=f"depapp_{req_id}", style="success", icon_id=EMOJIS["done"]),
-            ikb("Reject", callback_data=f"deprej_{req_id}", style="danger", icon_id=EMOJIS["close"])
-        ]
-    ])
-    
-    admin_caption = (
-        f"{CE('notice')} <b>NEW DEPOSIT REQUEST #{req_id}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>User:</b> {message.from_user.full_name}\n"
-        f"{CE('link')} <b>User ID:</b> <code>{user_id}</code>\n"
-        f"{CE('telegram')} <b>Username:</b> @{username}\n"
-        f"{CE('wallet')} <b>Method:</b> <code>{method}</code>\n"
-        f"{CE('money')} <b>Amount:</b> <code>{amount:.2f} ৳</code>\n"
-        f"{CE('sms')} <b>Trx ID:</b> <code>{trx_id}</code>\n"
-        f"{CE('date')} <b>Time:</b> <code>{now_str}</code>"
+    safe_send(
+        message.chat.id,
+        f"{CE('up')} <b>Send your Python (.py), Node.js (.js), or ZIP archive document.</b>\n\n"
+        f"<i>All files are verified by our security engine before running.</i>"
     )
 
+def _build_global_file_chunks(filter_running_only=False, chunk_size=20):
+    items = []
+    for owner_id, files in user_files.items():
+        for fname, ftype, status in files:
+            if filter_running_only and not (status == "approved" and is_bot_running(owner_id, fname)):
+                continue
+            items.append((owner_id, fname, ftype, status))
+    items.sort(key=lambda x: (x[0], x[1]))
+    if not items: return []
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+def _build_check_files_chunks(user_id, chunk_size=25):
+    user_files_list = sorted(user_files.get(user_id, []))
+    if not user_files_list: return []
+    return [user_files_list[i : i + chunk_size] for i in range(0, len(user_files_list), chunk_size)]
+
+def _build_check_files_view(user_id, files_chunk=None, page=1, total_pages=1):
+    if files_chunk is None:
+        chunks = _build_check_files_chunks(user_id)
+        if not chunks:
+            return f"{CE('trader')} <b>Your Files:</b>\n\n<i>(No instances deployed yet)</i>", None
+        files_chunk = chunks[0]
+        total_pages = len(chunks)
+
+    header = f"{CE('trader')} <b>Deployed Instances:</b>"
+    if total_pages > 1:
+        header += f" (Page {page}/{total_pages})"
+    lines = [header + "\n"]
+
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for file_name, file_type, status in files_chunk:
+        is_running = (status == "approved" and is_bot_running(user_id, file_name))
+        run_st = "ONLINE" if is_running else "STOPPED"
+        icon_k = "done" if is_running else "close"
+        st_style = "success" if is_running else "danger"
+
+        btn_text = f"[{run_st}] {file_name} ({file_type})"
+        markup.add(cbtn(btn_text, callback_data=f"file_{user_id}_{file_name}", style=st_style, icon=icon_k))
+    return "\n".join(lines), markup
+
+def _logic_check_files(message):
+    user_id = message.from_user.id
+    chunks = _build_check_files_chunks(user_id)
+    if not chunks:
+        safe_send(message.chat.id, f"{CE('trader')} <b>Your Files:</b>\n\n<i>(No instances deployed yet)</i>")
+        return
+    for i, chunk in enumerate(chunks, 1):
+        text, markup = _build_check_files_view(user_id, files_chunk=chunk, page=i, total_pages=len(chunks))
+        safe_send(message.chat.id, text, reply_markup=markup)
+
+# --- Document Upload Processing ---
+@bot.message_handler(content_types=["document"])
+def handle_file_upload_doc(message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    doc = message.document
+
+    if is_banned(user_id):
+        safe_send(chat_id, f"{CE('notice')} <b>You are restricted from using this bot.</b>")
+        return
+
+    if bot_locked and user_id not in admin_ids:
+        safe_send(chat_id, get_bot_off_message())
+        return
+
+    if not enforce_force_sub(user_id, chat_id):
+        return
+
+    is_privileged = user_id == OWNER_ID or user_id in admin_ids
+    is_paid_auto_approved = not is_privileged and is_auto_approve_paid_enabled() and has_active_subscription(user_id)
+
+    if not is_privileged:
+        current_count = get_user_file_count(user_id)
+        limit = get_user_file_limit(user_id)
+        if current_count >= limit:
+            safe_send(chat_id, f"{CE('close')} <b>Container Quota Full ({current_count}/{limit})!</b> Upgrade plan first.")
+            return
+
+    file_name = doc.file_name
+    file_ext = os.path.splitext(file_name)[1].lower()
+    if file_ext not in [".py", ".js", ".zip"]:
+        safe_send(chat_id, f"{CE('notice')} <b>Only .py, .js, and .zip files are supported.</b>")
+        return
+
+    TELEGRAM_DOWNLOAD_LIMIT = 20 * 1024 * 1024
+    if doc.file_size and doc.file_size > TELEGRAM_DOWNLOAD_LIMIT:
+        safe_send(chat_id, f"{CE('notice')} <b>File exceeds 20 MB limit.</b>")
+        return
+
     try:
-        await bot.send_photo(PRIMARY_ADMIN, photo=photo_file_id, caption=admin_caption, reply_markup=admin_kb, parse_mode="HTML")
+        download_wait_msg = bot.reply_to(message, f"{CE('loading')} <i>Step 1/2: Processing & Allocating Container...</i>", parse_mode="HTML")
+        file_info_tg_doc = bot.get_file(doc.file_id)
+        downloaded_file_content = bot.download_file(file_info_tg_doc.file_path)
+
+        if user_id != OWNER_ID:
+            is_safe, reason = scan_file_for_malware(downloaded_file_content, file_name, user_id)
+            if not is_safe:
+                bot.edit_message_text(f"{CE('close')} <b>Security Violation:</b> {reason}", chat_id, download_wait_msg.message_id, parse_mode="HTML")
+                return
+
+        user_folder = get_user_folder(user_id)
+        file_path = os.path.join(user_folder, file_name)
+        with open(file_path, "wb") as f:
+            f.write(downloaded_file_content)
+
+        file_type = "js" if file_ext == ".js" else "py"
+
+        if is_privileged or is_paid_auto_approved:
+            bot.edit_message_text(f"{CE('done')} <b>File {file_name} provisioned & launched!</b>", chat_id, download_wait_msg.message_id, parse_mode="HTML")
+            save_user_file(user_id, file_name, file_type, "approved")
+            if file_ext == ".js":
+                threading.Thread(target=run_js_script, args=(file_path, user_id, user_folder, file_name, message)).start()
+            elif file_ext == ".py":
+                threading.Thread(target=run_script, args=(file_path, user_id, user_folder, file_name, message)).start()
+        else:
+            save_user_file(user_id, file_name, file_type, "pending")
+            bot.edit_message_text(
+                f"{CE('done')} <b>Script {file_name} Uploaded Successfully!</b>\n\n"
+                f"{CE('loading')} <b>Status:</b> <code>PENDING APPROVAL</code>\n"
+                f"<i>Our administrative desk has been notified for launch authorization.</i>",
+                chat_id, download_wait_msg.message_id, parse_mode="HTML"
+            )
+
+            review_markup = types.InlineKeyboardMarkup(row_width=2)
+            review_markup.add(
+                cbtn("Approve", callback_data=f"approve_{user_id}_{file_name}", style="success", icon="done"),
+                cbtn("Reject", callback_data=f"reject_{user_id}_{file_name}", style="danger", icon="close")
+            )
+            review_text = (
+                f"{CE('notice')} <b>NEW CONTAINER APPROVAL REQUIRED</b>\n\n"
+                f"{CE('trader')} <b>User:</b> <code>{user_id}</code>\n"
+                f"{CE('link')} <b>File:</b> <code>{file_name}</code> ({file_type})"
+            )
+            for aid in admin_ids | {OWNER_ID}:
+                try: safe_send(aid, review_text, reply_markup=review_markup)
+                except Exception: pass
     except Exception as e:
-        logging.error(f"Error alerting admin of deposit: {e}")
+        safe_send(chat_id, f"{CE('close')} <b>Upload Error:</b> <code>{str(e)}</code>")
 
-    await message.answer(
-        f"{CE('done')} <b>Deposit Request Submitted!</b>\n\n"
-        f"Your transaction details and screenshot have been delivered to our billing administrators. "
-        f"Your balance will reflect automatically once confirmed.",
-        reply_markup=main_reply_keyboard(user_id),
-        parse_mode="HTML"
-    )
+# --- Callback Routing ---
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callbacks(call):
+    global bot_locked
+    user_id = call.from_user.id
+    data = call.data
+    chat_id = call.message.chat.id
 
-@dp.callback_query(F.data.startswith("depapp_"))
-async def admin_approve_deposit(callback: types.CallbackQuery):
-    req_id = int(callback.data.split("_")[1])
-    with get_db() as conn:
-        req = conn.execute("SELECT * FROM deposit_requests WHERE id=?", (req_id,)).fetchone()
-        if not req or req[6] != "pending":
-            return await callback.answer("⚠️ This request has already been processed!", show_alert=True)
-            
-        user_id, amount = req[1], req[3]
-        conn.execute("UPDATE deposit_requests SET status='approved' WHERE id=?", (req_id,))
-        conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, user_id))
-        conn.commit()
-
-    await callback.message.edit_caption(
-        caption=callback.message.caption + f"\n\n{CE('done')} <b>STATUS: APPROVED BY ADMIN</b>",
-        parse_mode="HTML"
-    )
-    try:
-        await bot.send_message(
-            user_id,
-            f"{CE('done')} <b>Deposit Approved!</b>\n\n"
-            f"<code>{amount:.2f} ৳</code> has been successfully credited to your cloud wallet.",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    await callback.answer("Deposit Approved & Balance Added!", show_alert=True)
-
-@dp.callback_query(F.data.startswith("deprej_"))
-async def admin_reject_deposit(callback: types.CallbackQuery):
-    req_id = int(callback.data.split("_")[1])
-    with get_db() as conn:
-        req = conn.execute("SELECT * FROM deposit_requests WHERE id=?", (req_id,)).fetchone()
-        if not req or req[6] != "pending":
-            return await callback.answer("⚠️ This request has already been processed!", show_alert=True)
-            
-        user_id = req[1]
-        conn.execute("UPDATE deposit_requests SET status='rejected' WHERE id=?", (req_id,))
-        conn.commit()
-
-    await callback.message.edit_caption(
-        caption=callback.message.caption + f"\n\n{CE('close')} <b>STATUS: REJECTED BY ADMIN</b>",
-        parse_mode="HTML"
-    )
-    try:
-        await bot.send_message(
-            user_id,
-            f"{CE('close')} <b>Deposit Request Declined</b>\n\n"
-            f"Your submission for TrxID <code>{req[4]}</code> was rejected by administrators. Contact support if this is a discrepancy.",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    await callback.answer("Deposit Rejected!", show_alert=True)
-
-# ─── ANIMATED PROGRESS BAR LOADER ──────────────────────────────────────────
-async def run_progress_loader(msg: types.Message, title: str):
-    """Shows visual progress bar loader from 20% to 100%."""
-    stages = [
-        ("■■□□□□□□□□ 20%", "Allocating container environment..."),
-        ("■■■■□□□□□□ 40%", "Parsing requirements.txt packages..."),
-        ("■■■■■■□□□□ 60%", "Installing libraries via PIP package manager..."),
-        ("■■■■■■■■□□ 80%", "Verifying execution syntax integrity..."),
-        ("■■■■■■■■■■ 100%", "Executing container subprocess...")
-    ]
-    for bar, desc in stages:
-        try:
-            await msg.edit_text(
-                f"{CE('loading')} <b>{title}</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"<code>[{bar}]</code>\n"
-                f"<i>{desc}</i>",
-                parse_mode="HTML"
-            )
-            await asyncio.sleep(0.5)
-        except Exception:
-            pass
-
-# ─── UPLOAD & BOT HOSTING ENGINE (TRUE 2-STEP SYSTEM) ─────────────────────
-@dp.message(F.text.contains("Deploy Bot"))
-async def upload_prompt(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    get_or_create_user(user_id, message.from_user.username or "N/A")
-    plan_info = get_user_plan_info(user_id)
-
-    if not plan_info or not plan_info["is_active"]:
-        return await message.answer(
-            f"{CE('notice')} <b>No Active Subscription Found!</b>\n\n"
-            f"You require an active hosting package or Free Trial to launch bots.\n"
-            f"Check out <b>Plans</b> from the main menu to claim a trial or purchase a plan.",
-            parse_mode="HTML"
-        )
-        
-    if plan_info["current_bots"] >= plan_info["max_bots"]:
-        return await message.answer(
-            f"{CE('close')} <b>Container Quota Full!</b>\n\n"
-            f"Your active tier allows a maximum of <code>{plan_info['max_bots']}</code> bot deployment(s).\n"
-            f"Currently deployed: <code>{plan_info['current_bots']}/{plan_info['max_bots']}</code>.\n\n"
-            f"Please upgrade your plan or delete unused instances via <b>My Bots</b>.",
-            parse_mode="HTML"
-        )
-
-    await message.answer(
-        f"{CE('up')} <b>STEP 1: SEND PYTHON SCRIPT (.PY)</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Active Tier: <code>{plan_info['plan_name']}</code> ({plan_info['current_bots']}/{plan_info['max_bots']} Slots Used)\n\n"
-        f"Please send your python source file document (<code>.py</code>).\n"
-        f"<i>(ZIP project files with main.py are also accepted)</i>\n\n"
-        f"{CE('loading')} <i>Awaiting script document...</i>",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(UserStates.uploading_bot)
-
-# STEP 1: Process Python/ZIP Document
-@dp.message(F.document)
-async def process_file_upload(message: types.Message, state: FSMContext):
-    curr_state = await state.get_state()
-    if curr_state in [UserStates.deposit_amount.state, UserStates.deposit_trx.state]:
+    if is_banned(user_id):
+        bot.answer_callback_query(call.id, "Access restricted.", show_alert=True)
         return
 
-    # If user is in Step 2 (waiting for requirements.txt)
-    if curr_state == UserStates.waiting_for_requirements.state:
-        return await handle_requirements_file(message, state)
+    if bot_locked and user_id not in admin_ids:
+        bot.answer_callback_query(call.id, "System offline.", show_alert=True)
+        return
 
-    user_id = message.from_user.id
-    get_or_create_user(user_id, message.from_user.username or "N/A")
-    plan_info = get_user_plan_info(user_id)
+    if data == "verify_fsub":
+        unjoined = [] if (user_id == OWNER_ID or user_id in admin_ids) else get_unjoined_channels(user_id)
+        if unjoined:
+            bot.answer_callback_query(call.id, "Please join all required channels first!", show_alert=True)
+            return
+        bot.answer_callback_query(call.id, "Verified!")
+        try: bot.delete_message(chat_id, call.message.message_id)
+        except Exception: pass
+        _send_actual_welcome(user_id, chat_id, call.from_user.first_name, call.from_user.username)
+        return
 
-    if not plan_info or not plan_info["is_active"]:
-        return await message.answer(
-            f"{CE('notice')} <b>No Active Plan!</b> Please activate a plan via <b>Plans</b> before uploading files.",
-            parse_mode="HTML"
-        )
-    if plan_info["current_bots"] >= plan_info["max_bots"]:
-        return await message.answer(
-            f"{CE('close')} <b>Container Quota Full!</b> ({plan_info['current_bots']}/{plan_info['max_bots']} used). Upgrade your plan or delete old bots.",
-            parse_mode="HTML"
-        )
+    if not enforce_force_sub(user_id, chat_id):
+        bot.answer_callback_query(call.id, "Channel membership mandatory.", show_alert=True)
+        return
 
-    doc = message.document
-    filename = doc.file_name or "bot_code.py"
-    ext = os.path.splitext(filename)[1].lower()
+    if data == "view_plans_cb":
+        bot.answer_callback_query(call.id)
+        _logic_view_plans(call)
 
-    if ext not in [".py", ".js", ".zip"]:
-        return await message.answer(
-            f"{CE('close')} <b>Unsupported File!</b> Please upload <code>.py</code>, <code>.js</code>, or <code>.zip</code> files.",
-            reply_markup=cancel_btn(),
-            parse_mode="HTML"
-        )
+    elif data == "help_faq":
+        bot.answer_callback_query(call.id)
+        safe_send(chat_id, get_faq_text())
 
-    status_msg = await message.answer(f"{CE('loading')} <i>Step 1/2: Downloading & Analyzing source script...</i>", parse_mode="HTML")
-    timestamp = int(time.time())
-    bot_dir = os.path.join(BOT_STORAGE_DIR, f"{user_id}_{timestamp}")
-    os.makedirs(bot_dir, exist_ok=True)
+    elif data == "help_terms":
+        bot.answer_callback_query(call.id)
+        safe_send(chat_id, get_terms_text())
 
-    file_path = os.path.join(bot_dir, filename)
-    file_info = await bot.get_file(doc.file_id)
-    await bot.download_file(file_info.file_path, destination=file_path)
+    elif data == "write_message_init":
+        bot.answer_callback_query(call.id)
+        msg = safe_send(chat_id, f"{CE('sms')} <b>Type your technical message:</b>")
+        safe_next_step(msg, process_write_message)
 
-    # If ZIP file is provided
-    if ext == ".zip":
-        await status_msg.edit_text(f"{CE('loading')} <i>Unpacking ZIP archive and detecting structure...</i>", parse_mode="HTML")
-        try:
-            with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                zip_ref.extractall(bot_dir)
-            os.remove(file_path)
-        except Exception as e:
-            shutil.rmtree(bot_dir, ignore_errors=True)
-            return await status_msg.edit_text(f"{CE('close')} <b>Archive Extraction Error:</b> <code>{html.escape(str(e))}</code>", parse_mode="HTML")
+    elif data.startswith("instmod_"):
+        _, owner_id, mod_name, fname = data.split("_", 3)
+        if user_id != int(owner_id) and user_id not in admin_ids:
+            return bot.answer_callback_query(call.id, "Unauthorized.", show_alert=True)
 
-        files = os.listdir(bot_dir)
-        entry_file = None
-        bot_type = "python"
-        for candidate in ["main.py", "bot.py"]:
-            if candidate in files:
-                entry_file = candidate
-                break
-        if not entry_file:
-            for candidate in ["index.js", "main.js"]:
-                if candidate in files:
-                    entry_file = candidate
-                    bot_type = "nodejs"
-                    break
-        if not entry_file:
-            py_files = [f for f in files if f.endswith(".py")]
-            if py_files:
-                entry_file = py_files[0]
+        bot.answer_callback_query(call.id)
+        pkg_name = TELEGRAM_MODULES.get(mod_name.lower(), mod_name)
+        ext = os.path.splitext(fname)[1].lower()
+
+        status_msg = safe_send(chat_id, f"{CE('loading')} <i>Installing package:</i> <code>{pkg_name}</code>...")
+
+        def do_pip_install():
+            cmd = ["npm", "install", pkg_name] if ext == ".js" else [sys.executable, "-m", "pip", "install", "--user", pkg_name]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                bot.edit_message_text(f"{CE('done')} <b>Package <code>{pkg_name}</code> installed!</b> Rebooting...", chat_id, status_msg.message_id, parse_mode="HTML")
+                time.sleep(1)
+                ufolder = get_user_folder(int(owner_id))
+                fpath = os.path.join(ufolder, fname)
+                if ext == ".js": run_js_script(fpath, int(owner_id), ufolder, fname, call.message)
+                else: run_script(fpath, int(owner_id), ufolder, fname, call.message)
             else:
-                shutil.rmtree(bot_dir, ignore_errors=True)
-                return await status_msg.edit_text(f"{CE('close')} <b>No main.py or bot.py found in zip!</b>", parse_mode="HTML")
+                bot.edit_message_text(f"{CE('close')} <b>Install Failed:</b>\n<pre>{res.stderr[:250]}</pre>", chat_id, status_msg.message_id, parse_mode="HTML")
 
-        await finalize_and_launch_bot(
-            user_id=user_id,
-            bot_name=filename,
-            bot_type=bot_type,
-            bot_dir=bot_dir,
-            entry_file=entry_file,
-            status_msg=status_msg,
-            state=state
-        )
-        return
+        threading.Thread(target=do_pip_install).start()
 
-    # If single .JS file
-    elif ext == ".js":
-        await finalize_and_launch_bot(
-            user_id=user_id,
-            bot_name=filename,
-            bot_type="nodejs",
-            bot_dir=bot_dir,
-            entry_file=filename,
-            status_msg=status_msg,
-            state=state
-        )
-        return
-
-    # If single .PY file: PRE-FLIGHT CHECK THEN REQUEST REQUIREMENTS.TXT (STEP 2)
-    elif ext == ".py":
-        # Check syntax
-        compile_check = subprocess.run([sys.executable, "-m", "py_compile", file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        syntax_status = "Passed (Clean Syntax)" if compile_check.returncode == 0 else "Warning: Syntax check noticed potential errors"
-
-        file_size_kb = round(doc.file_size / 1024, 2)
-
-        await state.update_data(
-            bot_dir=bot_dir,
-            filename=filename,
-            entry_file=filename,
-            bot_type="python"
-        )
-        await state.set_state(UserStates.waiting_for_requirements)
-
-        step2_text = (
-            f"{CE('done')} <b>STEP 1 VERIFIED: SCRIPT RECEIVED!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{CE('link')} <b>File Name:</b> <code>{filename}</code>\n"
-            f"{CE('world')} <b>Size:</b> <code>{file_size_kb} KB</code>\n"
-            f"{CE('speed')} <b>Syntax Check:</b> <code>{syntax_status}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{CE('up')} <b>STEP 2: UPLOAD YOUR REQUIREMENTS.TXT</b>\n\n"
-            f"Please now send your <b>requirements.txt</b> file.\n"
-            f"<i>(Write your package dependencies in a .txt file, e.g. requests, telebot, etc., and send it here)</i>"
-        )
-        await status_msg.edit_text(step2_text, reply_markup=cancel_btn(), parse_mode="HTML")
-
-# STEP 2: Handle requirements.txt upload
-async def handle_requirements_file(message: types.Message, state: FSMContext):
-    doc = message.document
-    data = await state.get_data()
-    bot_dir = data.get("bot_dir")
-    filename = data.get("filename")
-
-    if not bot_dir or not os.path.exists(bot_dir):
-        await state.clear()
-        return await message.answer(f"{CE('close')} Session expired. Please re-upload your .py file.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
-
-    status_msg = await message.answer(f"{CE('loading')} <i>Step 2/2: Receiving requirements.txt file...</i>", parse_mode="HTML")
-    req_file_path = os.path.join(bot_dir, "requirements.txt")
-    file_info = await bot.get_file(doc.file_id)
-    await bot.download_file(file_info.file_path, destination=req_file_path)
-
-    await finalize_and_launch_bot(
-        user_id=message.from_user.id,
-        bot_name=filename,
-        bot_type="python",
-        bot_dir=bot_dir,
-        entry_file=filename,
-        status_msg=status_msg,
-        state=state
-    )
-
-# Core Deploy & Run Engine
-async def finalize_and_launch_bot(
-    user_id: int,
-    bot_name: str,
-    bot_type: str,
-    bot_dir: str,
-    entry_file: str,
-    status_msg: types.Message,
-    state: FSMContext
-):
-    await state.clear()
-
-    # Animated Progress Loader
-    await run_progress_loader(status_msg, f"DEPLOYING CONTAINER #{bot_name}")
-
-    # Install Requirements
-    pip_note = "Standard Runtime"
-    req_file = os.path.join(bot_dir, "requirements.txt")
-
-    if os.path.exists(req_file):
-        try:
-            proc = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", req_file],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=180
-            )
-            if proc.returncode == 0:
-                pip_note = "✅ Installed successfully from requirements.txt"
-            else:
-                err_log = proc.stderr.decode('utf-8', errors='ignore')[:250]
-                pip_note = f"⚠️ Install Warning:\n<code>{html.escape(err_log)}</code>"
-        except Exception as e:
-            pip_note = f"⚠️ Pip Notice: {str(e)}"
-
-    # Save to Database
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO bots (user_id, bot_name, bot_type, folder_path, entry_file, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, bot_name, bot_type, bot_dir, entry_file, "stopped", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        )
-        conn.commit()
-        bot_id = cur.lastrowid
-
-    # AUTO RUN: Launch the bot instance immediately
-    success, launch_msg = launch_bot_instance(bot_id, bot_dir, entry_file, bot_type)
-
-    if success:
-        success_card = (
-            f"{CE('done')} <b>INSTANCE DEPLOYED & LIVE!</b> {CE('fire')}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{CE('link')} <b>Bot Instance:</b> <code>#{bot_id}</code>\n"
-            f"{CE('arrow_right')} <b>Primary File:</b> <code>{entry_file}</code>\n"
-            f"{CE('power')} <b>Runtime:</b> <code>{bot_type.upper()}</code>\n"
-            f"{CE('speed')} <b>Status:</b> 🟢 <b>ONLINE & RUNNING</b>\n"
-            f"{CE('diamond')} <b>Dependencies:</b> {pip_note}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎉 <i>Your bot is running 24/7. Control anytime via <b>My Bots</b>.</i>"
-        )
-        await status_msg.edit_text(success_card, parse_mode="HTML")
-    else:
-        fail_card = (
-            f"{CE('notice')} <b>EXECUTION ERROR DETECTED (#{bot_id})!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{CE('close')} <b>Process Output Log:</b>\n"
-            f"<pre>{html.escape(launch_msg)}</pre>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<i>Fix the error above and restart instance from <b>My Bots</b>.</i>"
-        )
-        await status_msg.edit_text(fail_card, parse_mode="HTML")
-
-# ─── MY BOTS MANAGEMENT (FULL CONTROLS & MONITORING) ───────────────────────
-@dp.message(F.text.contains("My Bots"))
-async def my_bots_list(message: types.Message):
-    user_id = message.from_user.id
-    with get_db() as conn:
-        bots = conn.execute("SELECT bot_id, bot_name, status FROM bots WHERE user_id=?", (user_id,)).fetchall()
-        
-    if not bots:
-        return await message.answer(
-            f"{CE('notice')} <b>No deployed instances found.</b> Use <b>Deploy Bot</b> to upload one.",
-            parse_mode="HTML"
-        )
-
-    buttons = []
-    for b in bots:
-        is_running = b[2] == "running" and b[0] in ACTIVE_PROCESSES and ACTIVE_PROCESSES[b[0]].poll() is None
-        icon_id = EMOJIS["done"] if is_running else EMOJIS["close"]
-        status_text = "LIVE" if is_running else "STOPPED"
-        buttons.append([ikb(f"[{status_text}] #{b[0]} - {b[1]}", callback_data=f"managebot_{b[0]}", style="primary", icon_id=icon_id)])
-        
-    await message.answer(f"{CE('trader')} <b>SELECT CONTAINER INSTANCE:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
-
-@dp.callback_query(F.data.startswith("managebot_"))
-async def bot_controls(callback: types.CallbackQuery, target_bot_id: int = None):
-    if target_bot_id is not None:
-        bot_id = target_bot_id
-    else:
-        try:
-            bot_id = int(callback.data.split("_")[-1])
-        except Exception:
-            return await callback.answer("Instance ID parse error!", show_alert=True)
-
-    with get_db() as conn:
-        b = conn.execute("SELECT * FROM bots WHERE bot_id=?", (bot_id,)).fetchone()
-        
-    if not b:
-        return await callback.answer("Instance record not found!", show_alert=True)
-
-    is_running = b[6] == "running" and bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None
-    status_icon = f"{CE('done')} LIVE (Running)" if is_running else f"{CE('close')} STOPPED"
-    
-    res_usage_str = "Offline"
-    if is_running:
-        try:
-            p = psutil.Process(ACTIVE_PROCESSES[bot_id].pid)
-            mem_mb = round(p.memory_info().rss / (1024 * 1024), 2)
-            cpu_p = p.cpu_percent(interval=None)
-            res_usage_str = f"CPU: {cpu_p}% | RAM: {mem_mb} MB"
-        except Exception:
-            res_usage_str = "Measuring..."
-
-    text = (
-        f"{CE('diamond')} <b>BOT CONTAINER CONTROLLER #{b[0]}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('link')} <b>Name:</b> <code>{b[2]}</code>\n"
-        f"{CE('power')} <b>Runtime Engine:</b> <code>{b[3].upper()}</code>\n"
-        f"{CE('arrow_right')} <b>Primary File:</b> <code>{b[5]}</code>\n"
-        f"{CE('speed')} <b>Status:</b> {status_icon}\n"
-        f"{CE('boom')} <b>Resource Load:</b> <code>{res_usage_str}</code>\n"
-        f"{CE('date')} <b>Deployed On:</b> <code>{b[7]}</code>"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            ikb("Start", callback_data=f"actbot_start_{b[0]}", style="success", icon_id=EMOJIS["play"]),
-            ikb("Stop", callback_data=f"actbot_stop_{b[0]}", style="danger", icon_id=EMOJIS["stop"]),
-            ikb("Restart", callback_data=f"actbot_restart_{b[0]}", style="primary", icon_id=EMOJIS["restart"])
-        ],
-        [
-            ikb("Logs", callback_data=f"actbot_logs_{b[0]}", style="primary", icon_id=EMOJIS["logs"]),
-            ikb("Backup Code", callback_data=f"actbot_download_{b[0]}", style="success", icon_id=EMOJIS["download"])
-        ],
-        [
-            ikb("Delete Bot", callback_data=f"actbot_delete_{b[0]}", style="danger", icon_id=EMOJIS["delete"]),
-            ikb("Back", callback_data="back_mybots", style="primary", icon_id=EMOJIS["arrow_right"])
-        ]
-    ])
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception:
-        pass
-
-@dp.callback_query(F.data == "back_mybots")
-async def back_to_bots(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await my_bots_list(callback.message)
-
-@dp.callback_query(F.data.startswith("actbot_"))
-async def execute_bot_action(callback: types.CallbackQuery):
-    parts = callback.data.split("_")
-    action = parts[1]
-    bot_id = int(parts[2])
-    
-    with get_db() as conn:
-        bot_row = conn.execute("SELECT * FROM bots WHERE bot_id=?", (bot_id,)).fetchone()
-        
-    if not bot_row:
-        return await callback.answer("Instance record not found!", show_alert=True)
-
-    folder, entry, btype = bot_row[4], bot_row[5], bot_row[3]
-    log_file = os.path.join(folder, "output.log")
-
-    # START
-    if action == "start":
-        if bot_id in ACTIVE_PROCESSES and ACTIVE_PROCESSES[bot_id].poll() is None:
-            return await callback.answer("⚠️ Bot process is already active and running!", show_alert=True)
-            
-        success, msg = launch_bot_instance(bot_id, folder, entry, btype)
-        if success:
-            await callback.answer("✅ Bot process started successfully!", show_alert=True)
+    elif data.startswith("viewlog_"):
+        _, owner_id, fname = data.split("_", 2)
+        ufolder = get_user_folder(int(owner_id))
+        log_fpath = os.path.join(ufolder, f"{os.path.splitext(fname)[0]}.log")
+        if os.path.exists(log_fpath):
+            with open(log_fpath, "r", encoding="utf-8", errors="ignore") as f:
+                logs = f.read()[-2000:]
+            safe_send(chat_id, f"{CE('logs')} <b>Error Log for <code>{fname}</code>:</b>\n<pre>{html.escape(logs if logs else 'Logs clean')}</pre>")
         else:
-            return await callback.message.answer(
-                f"{CE('notice')} <b>Launch Failure Warning (#{bot_id})!</b>\n"
-                f"The bot process failed to stay alive:\n<pre>{html.escape(msg)}</pre>",
-                parse_mode="HTML"
+            bot.answer_callback_query(call.id, "No logs recorded.", show_alert=True)
+
+    # --- Admin Callbacks ---
+    elif data == "add_plan_init" and user_id in admin_ids:
+        bot.answer_callback_query(call.id)
+        msg = safe_send(chat_id, f"{CE('sms')} <b>Send Plan Configuration:</b>\n<code>Name | Limit | Price | Days | BuyLink</code>")
+        safe_next_step(msg, process_add_plan)
+
+    elif data == "manage_plans" and user_id in admin_ids:
+        bot.answer_callback_query(call.id)
+        plans = get_all_plans()
+        if not plans:
+            safe_send(chat_id, f"{CE('notice')} <b>No active plans.</b>")
+            return
+        markup = types.InlineKeyboardMarkup()
+        for p in plans:
+            markup.add(cbtn(f"Delete {p[1]}", callback_data=f"del_plan_{p[0]}", style="danger", icon="delete"))
+        safe_send(chat_id, f"{CE('delete')} <b>Select Plan to Delete:</b>", reply_markup=markup)
+
+    elif data.startswith("del_plan_") and user_id in admin_ids:
+        pid = int(data.split("_")[2])
+        delete_plan_db(pid)
+        bot.answer_callback_query(call.id, "Plan Purged!")
+        safe_send(chat_id, f"{CE('done')} <b>Plan removed from database.</b>")
+
+    elif data == "add_subscription" and user_id in admin_ids:
+        bot.answer_callback_query(call.id)
+        msg = safe_send(chat_id, f"{CE('diamond')} <b>Enter User ID or @username to grant tier:</b>")
+        safe_next_step(msg, process_add_subscription_target)
+
+    elif data.startswith("grantsub_") and user_id in admin_ids:
+        _, target_uid, plan_id = data.split("_", 2)
+        target_uid, plan_id = int(target_uid), int(plan_id)
+        plan = get_plan_by_id(plan_id)
+        if not plan: return bot.answer_callback_query(call.id, "Plan missing.")
+        _, pname, limit, price, duration, _ = plan
+        exp = datetime.now() + timedelta(days=duration)
+        save_subscription(target_uid, pname, exp)
+        set_user_limit_override(target_uid, limit)
+        log_sale(target_uid, pname, price, user_id)
+        bot.answer_callback_query(call.id, "Granted!")
+        safe_send(chat_id, f"{CE('done')} <b>Plan <code>{pname}</code> activated for User <code>{target_uid}</code> ({duration}d).</b>")
+
+    elif data == "toggle_lock" and user_id in admin_ids:
+        bot_locked = not bot_locked
+        bot.answer_callback_query(call.id, f"Lock State: {bot_locked}")
+        safe_send(chat_id, f"{CE('power')} <b>Lock State Updated:</b> <code>{bot_locked}</code>")
+
+    # --- File Management Callbacks ---
+    elif data.startswith("file_"):
+        _, owner_id, fname = data.split("_", 2)
+        owner_id = int(owner_id)
+        file_type, status = get_file_record(owner_id, fname)
+        if file_type is None:
+            return bot.answer_callback_query(call.id, "File missing.", show_alert=True)
+
+        is_running = status == "approved" and is_bot_running(owner_id, fname)
+        st_text = f"{CE('done')} ONLINE & RUNNING" if is_running else f"{CE('close')} STOPPED"
+
+        card_text = (
+            f"{CE('diamond')} <b>CONTAINER CONTROLLER #{fname}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{CE('link')} <b>Runtime:</b> <code>{file_type.upper()}</code>\n"
+            f"{CE('trader')} <b>User:</b> <code>{owner_id}</code>\n"
+            f"{CE('speed')} <b>Status:</b> {st_text}"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        if is_running:
+            markup.add(
+                cbtn("Stop Process", callback_data=f"stop_{owner_id}_{fname}", style="danger", icon="stop"),
+                cbtn("Delete Worker", callback_data=f"del_{owner_id}_{fname}", style="danger", icon="delete")
             )
-
-    # STOP
-    elif action == "stop":
-        stop_bot_instance(bot_id)
-        await callback.answer("🛑 Instance subprocess stopped!", show_alert=True)
-
-    # RESTART
-    elif action == "restart":
-        stop_bot_instance(bot_id)
-        time.sleep(0.5)
-        success, msg = launch_bot_instance(bot_id, folder, entry, btype)
-        if success:
-            await callback.answer("🔄 Instance rebooted successfully!", show_alert=True)
         else:
-            return await callback.message.answer(
-                f"{CE('notice')} <b>Reboot Failure Warning (#{bot_id})!</b>\n<pre>{html.escape(msg)}</pre>",
-                parse_mode="HTML"
+            markup.add(
+                cbtn("Start Process", callback_data=f"start_{owner_id}_{fname}", style="success", icon="play"),
+                cbtn("Delete Worker", callback_data=f"del_{owner_id}_{fname}", style="danger", icon="delete")
             )
+        markup.add(cbtn("Terminal Logs", callback_data=f"viewlog_{owner_id}_{fname}", style="primary", icon="logs"))
+        if user_id in admin_ids:
+            markup.add(cbtn("Download Archive", callback_data=f"download_{owner_id}_{fname}", style="success", icon="download"))
+        markup.add(cbtn("Back to Files", callback_data=f"backfiles_{owner_id}", style="primary", icon="arrow_right"))
 
-    # LOGS
-    elif action == "logs":
-        if not os.path.exists(log_file):
-            return await callback.answer("No console log file generated yet.", show_alert=True)
-            
-        try:
-            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-                tail = "".join(lines[-30:]) or "Output log file is clean and empty."
-        except Exception as e:
-            tail = f"Error reading log output: {e}"
+        bot.answer_callback_query(call.id)
+        safe_send(chat_id, card_text, reply_markup=markup)
 
-        tail_escaped = html.escape(tail)
-        return await callback.message.answer(
-            f"{CE('logs')} <b>TERMINAL OUTPUT (#{bot_id}):</b>\n<pre>{tail_escaped}</pre>",
-            parse_mode="HTML"
-        )
+    elif data.startswith("start_"):
+        _, owner_id, fname = data.split("_", 2)
+        owner_id = int(owner_id)
+        fpath = os.path.join(get_user_folder(owner_id), fname)
+        ftype, status = get_file_record(owner_id, fname)
+        if status != "approved":
+            return bot.answer_callback_query(call.id, "Awaiting approval.", show_alert=True)
+        if is_bot_running(owner_id, fname):
+            return bot.answer_callback_query(call.id, "Already active.")
 
-    # DOWNLOAD BACKUP
-    elif action == "download":
-        await callback.answer("📦 Packaging source archive...")
-        zip_archive_path = os.path.join(BOT_STORAGE_DIR, f"backup_bot_{bot_id}")
-        shutil.make_archive(zip_archive_path, 'zip', folder)
-        full_zip = f"{zip_archive_path}.zip"
-        
-        await callback.message.answer_document(
-            FSInputFile(full_zip),
-            caption=f"{CE('done')} <b>Complete Source Code Backup for Instance #{bot_id}</b>",
-            parse_mode="HTML"
-        )
-        if os.path.exists(full_zip):
-            os.remove(full_zip)
-        return
+        bot.answer_callback_query(call.id, "Starting...")
+        if ftype == "js": threading.Thread(target=run_js_script, args=(fpath, owner_id, get_user_folder(owner_id), fname, call.message)).start()
+        else: threading.Thread(target=run_script, args=(fpath, owner_id, get_user_folder(owner_id), fname, call.message)).start()
 
-    # DELETE
-    elif action == "delete":
-        stop_bot_instance(bot_id)
-            
-        if os.path.exists(folder):
-            shutil.rmtree(folder, ignore_errors=True)
-            
-        with get_db() as conn:
-            conn.execute("DELETE FROM bots WHERE bot_id=?", (bot_id,))
-            conn.commit()
-            
-        await callback.message.delete()
-        return await callback.message.answer(
-            f"{CE('delete')} <b>Container instance #{bot_id} completely removed from servers.</b>",
-            parse_mode="HTML"
-        )
+    elif data.startswith("stop_"):
+        _, owner_id, fname = data.split("_", 2)
+        skey = f"{owner_id}_{fname}"
+        if skey in bot_scripts:
+            kill_process_tree(bot_scripts[skey])
+            bot_scripts.pop(skey, None)
+        bot.answer_callback_query(call.id, "Terminated.")
+        safe_send(chat_id, f"{CE('stop')} <b>Script <code>{fname}</code> stopped.</b>")
 
-    # Refresh card properly without losing instance record!
-    await bot_controls(callback, target_bot_id=bot_id)
+    elif data.startswith("del_"):
+        _, owner_id, fname = data.split("_", 2)
+        skey = f"{owner_id}_{fname}"
+        if skey in bot_scripts:
+            kill_process_tree(bot_scripts[skey])
+            bot_scripts.pop(skey, None)
+        remove_user_file_db(int(owner_id), fname)
+        fpath = os.path.join(get_user_folder(int(owner_id)), fname)
+        if os.path.exists(fpath): os.remove(fpath)
+        bot.answer_callback_query(call.id, "Deleted.")
+        safe_send(chat_id, f"{CE('delete')} <b>Container <code>{fname}</code> purged.</b>")
 
-# ─── ADMIN PANEL & COMPREHENSIVE PLAN MANAGER ──────────────────────────────
-@dp.message(F.text.contains("Admin Panel"))
-async def admin_panel_root(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return await message.answer(f"{CE('close')} <b>Permission Denied! Super Administrators Only.</b>", parse_mode="HTML")
+    elif data.startswith("approve_"):
+        if user_id not in admin_ids and user_id != OWNER_ID: return
+        _, owner_id, fname = data.split("_", 2)
+        owner_id = int(owner_id)
+        update_file_status_db(owner_id, fname, "approved")
+        bot.answer_callback_query(call.id, "Approved!")
+        fpath = os.path.join(get_user_folder(owner_id), fname)
+        threading.Thread(target=run_script, args=(fpath, owner_id, get_user_folder(owner_id), fname, call.message)).start()
 
-    with get_db() as conn:
-        total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        total_bots = conn.execute("SELECT COUNT(*) FROM bots").fetchone()[0]
-        running_bots = len([p for p in ACTIVE_PROCESSES.values() if p.poll() is None])
-        plans_sold = conn.execute("SELECT COUNT(*) FROM users WHERE plan_id > 0").fetchone()[0]
+    elif data.startswith("reject_"):
+        if user_id not in admin_ids and user_id != OWNER_ID: return
+        _, owner_id, fname = data.split("_", 2)
+        owner_id = int(owner_id)
+        remove_user_file_db(owner_id, fname)
+        bot.answer_callback_query(call.id, "Rejected.")
+        safe_send(chat_id, f"{CE('close')} <b>File <code>{fname}</code> rejected.</b>")
 
-    admin_text = (
-        f"{CE('crown')} <b>SUPER ADMINISTRATOR CONTROL CENTER</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>Total Users:</b> <code>{total_users}</code>\n"
-        f"{CE('power')} <b>Total Containers:</b> <code>{total_bots}</code>\n"
-        f"{CE('done')} <b>Active Worker Processes:</b> <code>{running_bots}</code>\n"
-        f"{CE('diamond')} <b>Active Subscriptions:</b> <code>{plans_sold}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Configure servers, plans, trial systems, and channels below:</i>"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Scan & Manage User", callback_data="adm_scan_user", style="primary", icon_id=EMOJIS["search"]), ikb("All Hosted Bots", callback_data="adm_all_bots", style="primary", icon_id=EMOJIS["trader"])],
-        [ikb("Manage Paid Plans", callback_data="adm_manage_plans", style="primary", icon_id=EMOJIS["diamond"]), ikb("Free Trial Settings", callback_data="adm_trial_settings", style="primary", icon_id=EMOJIS["gift"])],
-        [ikb("Force Join Channels", callback_data="adm_manage_channels", style="primary", icon_id=EMOJIS["link"]), ikb("Payment Gateways", callback_data="adm_payments", style="primary", icon_id=EMOJIS["wallet"])],
-        [ikb("Broadcast Announcement", callback_data="adm_broadcast", style="primary", icon_id=EMOJIS["notice"]), ikb("Manage Admins", callback_data="adm_manage_admins", style="primary", icon_id=EMOJIS["shield"])],
-        [ikb("Update Support Desk", callback_data="adm_support", style="primary", icon_id=EMOJIS["support"])]
-    ])
-    await message.answer(admin_text, reply_markup=keyboard, parse_mode="HTML")
+    elif data.startswith("download_") and user_id in admin_ids:
+        _, owner_id, fname = data.split("_", 2)
+        fpath = os.path.join(get_user_folder(int(owner_id)), fname)
+        if os.path.exists(fpath):
+            with open(fpath, "rb") as f:
+                bot.send_document(chat_id, f, caption=f"{CE('done')} <b>Backup Archive for {fname}</b>", parse_mode="HTML")
 
-# 1. Force Join Channels Manager
-@dp.callback_query(F.data == "adm_manage_channels")
-async def adm_manage_channels_menu(callback: types.CallbackQuery):
-    with get_db() as conn:
-        channels = conn.execute("SELECT id, title, chat_id FROM force_channels").fetchall()
-    fsub_status = "ENABLED" if get_setting("fsub_enabled") == "1" else "DISABLED"
+    elif data.startswith("backfiles_"):
+        _, owner_id = data.split("_", 1)
+        _logic_check_files(call.message)
 
-    text = (
-        f"{CE('link')} <b>FORCE SUBSCRIBE CHANNELS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Status: <b>{fsub_status}</b>\n\n"
-    )
-    buttons = []
-    for cid, title, chat_id in channels:
-        text += f"• <b>{title}</b> (<code>{chat_id}</code>)\n"
-        buttons.append([ikb(f"Remove {title}", callback_data=f"delchan_{cid}", style="danger", icon_id=EMOJIS["delete"])])
+    elif data == "all_files" and user_id in admin_ids:
+        bot.answer_callback_query(call.id)
+        chunks = _build_global_file_chunks(filter_running_only=False)
+        for chunk in chunks:
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            for owner_id, fname, ftype, status in chunk:
+                running = (status == "approved" and is_bot_running(owner_id, fname))
+                st_icon = "done" if running else "close"
+                markup.add(cbtn(f"{fname} ({owner_id})", callback_data=f"file_{owner_id}_{fname}", style="primary", icon=st_icon))
+            safe_send(chat_id, f"{CE('trader')} <b>System Deployed Containers:</b>", reply_markup=markup)
 
-    toggle_btn_text = "Disable Force Join" if fsub_status == "ENABLED" else "Enable Force Join"
-    buttons.append([ikb(toggle_btn_text, callback_data="toggle_fsub_sys", style="primary", icon_id=EMOJIS["restart"])])
-    buttons.append([ikb("Add New Channel", callback_data="add_new_channel_link", style="success", icon_id=EMOJIS["arrow_right"])])
-    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="danger", icon_id=EMOJIS["close"])])
+    elif data == "running_bots" and user_id in admin_ids:
+        bot.answer_callback_query(call.id)
+        chunks = _build_global_file_chunks(filter_running_only=True)
+        for chunk in chunks:
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            for owner_id, fname, ftype, status in chunk:
+                markup.add(cbtn(f"{fname} ({owner_id})", callback_data=f"file_{owner_id}_{fname}", style="success", icon="play"))
+            safe_send(chat_id, f"{CE('done')} <b>Running Containers:</b>", reply_markup=markup)
 
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+    elif data == "stop_all_bots" and user_id in admin_ids:
+        bot.answer_callback_query(call.id, "Stopping all...")
+        stopped = len(bot_scripts)
+        for skey in list(bot_scripts.keys()):
+            kill_process_tree(bot_scripts[skey])
+            bot_scripts.pop(skey, None)
+        safe_send(chat_id, f"{CE('stop')} <b>Terminated <code>{stopped}</code> active instances.</b>")
 
-@dp.callback_query(F.data == "toggle_fsub_sys")
-async def toggle_fsub_handler(callback: types.CallbackQuery):
-    curr = get_setting("fsub_enabled")
-    set_setting("fsub_enabled", "0" if curr == "1" else "1")
-    await callback.answer("Force subscribe status toggled!", show_alert=True)
-    await adm_manage_channels_menu(callback)
-
-@dp.callback_query(F.data.startswith("delchan_"))
-async def delete_channel_handler(callback: types.CallbackQuery):
-    chan_id = int(callback.data.split("_")[1])
-    with get_db() as conn:
-        conn.execute("DELETE FROM force_channels WHERE id=?", (chan_id,))
-        conn.commit()
-    await callback.answer("Channel removed successfully!", show_alert=True)
-    await adm_manage_channels_menu(callback)
-
-@dp.callback_query(F.data == "add_new_channel_link")
-async def add_chan_step1(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(
-        f"{CE('link')} <b>Step 1:</b> Send the <b>public invite link or username</b> for the channel:\n\n"
-        f"<i>Example:</i> <code>https://t.me/YourChannel</code> or <code>@YourChannel</code>",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(AdminStates.add_channel_link)
-
-@dp.message(AdminStates.add_channel_link)
-async def add_chan_step2(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    link = message.text.strip()
-    await state.update_data(chan_link=link)
-    await message.answer(
-        f"{CE('sms')} <b>Step 2:</b> Send the <b>Numeric Chat ID</b> or <b>@username</b> of this channel:\n\n"
-        f"<i>(Ensure this bot is promoted as an Administrator in that channel!)</i>\n"
-        f"<i>Example:</i> <code>-1001234567890</code> or <code>@YourChannel</code>",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(AdminStates.add_channel_id)
-
-@dp.message(AdminStates.add_channel_id)
-async def add_chan_step3(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    chat_id = message.text.strip()
-    data = await state.get_data()
-    await state.clear()
-    link = data.get('chan_link', '')
-
-    title = link.split("/")[-1].replace("@", "")
-    try:
-        cid = int(chat_id) if (chat_id.startswith("-") and chat_id[1:].isdigit()) or chat_id.isdigit() else chat_id
-        chat = await bot.get_chat(cid)
-        title = chat.title
-    except Exception:
-        pass
-
-    with get_db() as conn:
-        conn.execute("INSERT OR REPLACE INTO force_channels (chat_id, title, invite_link) VALUES (?, ?, ?)", (chat_id, title, link))
-        conn.commit()
-
-    await message.answer(
-        f"{CE('done')} <b>Channel Added Successfully!</b>\n\n"
-        f"{CE('link')} <b>Title:</b> {title}\n"
-        f"{CE('telegram')} <b>Chat ID:</b> <code>{chat_id}</code>",
-        reply_markup=main_reply_keyboard(message.from_user.id),
-        parse_mode="HTML"
-    )
-
-# 2. Free Trial Settings
-@dp.callback_query(F.data == "adm_trial_settings")
-async def adm_trial_settings_menu(callback: types.CallbackQuery):
-    t_enabled = "ENABLED" if get_setting("trial_enabled") == "1" else "DISABLED"
-    t_days = get_setting("trial_days") or "3"
-    t_bots = get_setting("trial_max_bots") or "1"
-    t_limit = get_setting("trial_limit") or "1"
-
-    text = (
-        f"{CE('gift')} <b>FREE TRIAL CONFIGURATION</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('power')} <b>Status:</b> <b>{t_enabled}</b>\n"
-        f"{CE('date')} <b>Duration:</b> <code>{t_days} Days</code>\n"
-        f"{CE('trader')} <b>Bot Quota:</b> <code>{t_bots} Bot(s)</code>\n"
-        f"{CE('notice')} <b>Claim Limit:</b> <code>Max {t_limit} Time(s) Per User</code>"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Toggle Trial ON/OFF", callback_data="toggle_trial_status", style="primary", icon_id=EMOJIS["restart"])],
-        [
-            ikb("Edit Duration (Days)", callback_data="edit_trial_days_btn", style="primary", icon_id=EMOJIS["date"]),
-            ikb("Edit Bot Quota", callback_data="edit_trial_bots_btn", style="primary", icon_id=EMOJIS["power"])
-        ],
-        [ikb("Edit Claim Allowance Limit", callback_data="edit_trial_limit_btn", style="primary", icon_id=EMOJIS["notice"])],
-        [ikb("Back to Admin Panel", callback_data="back_admin_root", style="danger", icon_id=EMOJIS["close"])]
-    ])
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-
-@dp.callback_query(F.data == "toggle_trial_status")
-async def toggle_trial_handler(callback: types.CallbackQuery):
-    curr = get_setting("trial_enabled")
-    set_setting("trial_enabled", "0" if curr == "1" else "1")
-    await callback.answer("Free trial toggle updated!", show_alert=True)
-    await adm_trial_settings_menu(callback)
-
-@dp.callback_query(F.data == "edit_trial_days_btn")
-async def edit_t_days(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('date')} Send new trial duration in <b>Days</b> (e.g. <code>3</code>):", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.edit_trial_days)
-
-@dp.message(AdminStates.edit_trial_days)
-async def save_t_days(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    set_setting("trial_days", message.text.strip())
-    await message.answer(f"{CE('done')} Trial duration set to <b>{message.text.strip()} Days</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
-
-@dp.callback_query(F.data == "edit_trial_bots_btn")
-async def edit_t_bots(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('power')} Send max bot deployment quota for trial (e.g. <code>1</code>):", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.edit_trial_bots)
-
-@dp.message(AdminStates.edit_trial_bots)
-async def save_t_bots(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    set_setting("trial_max_bots", message.text.strip())
-    await message.answer(f"{CE('done')} Trial bot slot limit set to <b>{message.text.strip()}</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
-
-@dp.callback_query(F.data == "edit_trial_limit_btn")
-async def edit_t_limit(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('notice')} Send how many times each user can claim the trial (e.g. <code>1</code>):", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.edit_trial_limit)
-
-@dp.message(AdminStates.edit_trial_limit)
-async def save_t_limit(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    set_setting("trial_limit", message.text.strip())
-    await message.answer(f"{CE('done')} Maximum claim limit updated to <b>{message.text.strip()} time(s)</b>.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
-
-# 3. All Hosted Bots & Remote Code Download
-@dp.callback_query(F.data == "adm_all_bots")
-async def adm_all_bots(callback: types.CallbackQuery):
-    with get_db() as conn:
-        bots = conn.execute("SELECT bot_id, user_id, bot_name, status FROM bots LIMIT 30").fetchall()
-        
-    if not bots:
-        return await callback.answer("No deployed bot instances located.", show_alert=True)
-
-    text = f"{CE('trader')} <b>GLOBAL INSTANCES (First 30)</b>:\n\n"
-    buttons = []
-    for b in bots:
-        is_running = b[0] in ACTIVE_PROCESSES and ACTIVE_PROCESSES[b[0]].poll() is None
-        st_icon = EMOJIS["done"] if is_running else EMOJIS["close"]
-        text += f"• <code>#{b[0]}</code> | Owner: <code>{b[1]}</code> | {b[2]}\n"
-        buttons.append([ikb(f"Backup #{b[0]} ({b[2]})", callback_data=f"adm_dl_{b[0]}", style="primary", icon_id=EMOJIS["download"])])
-
-    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="danger", icon_id=EMOJIS["close"])])
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
-
-@dp.callback_query(F.data.startswith("adm_dl_"))
-async def adm_download_bot_files(callback: types.CallbackQuery):
-    bot_id = int(callback.data.split("_")[2])
-    with get_db() as conn:
-        b = conn.execute("SELECT folder_path, user_id, bot_name FROM bots WHERE bot_id=?", (bot_id,)).fetchone()
-    if not b or not os.path.exists(b[0]):
-        return await callback.answer("Instance folder missing!", show_alert=True)
-
-    await callback.answer("Packing source archive...")
-    zip_path = os.path.join(BOT_STORAGE_DIR, f"admin_dump_bot_{bot_id}")
-    shutil.make_archive(zip_path, 'zip', b[0])
-    full_zip = f"{zip_path}.zip"
-    
-    await callback.message.answer_document(
-        FSInputFile(full_zip),
-        caption=f"{CE('done')} <b>Admin Backup: Bot #{bot_id} ({b[2]}) owned by <code>{b[1]}</code></b>",
-        parse_mode="HTML"
-    )
-    if os.path.exists(full_zip):
-        os.remove(full_zip)
-
-# 4. Scan & Manage User
-@dp.callback_query(F.data == "adm_scan_user")
-async def adm_scan_prompt(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('search')} <b>Enter numerical Telegram User ID to scan:</b>", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.scanning_user)
-
-@dp.message(AdminStates.scanning_user)
-async def adm_scan_display(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    try:
-        uid = int(message.text.strip())
-    except ValueError:
-        return await message.answer(f"{CE('close')} Invalid numerical ID.")
-
-    with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE user_id=?", (uid,)).fetchone()
-        
-    if not user:
-        return await message.answer(f"{CE('close')} User not registered in database.")
-
-    plan_info = get_user_plan_info(uid)
-    status = "BANNED" if user[5] == 1 else "ACTIVE"
-    text = (
-        f"{CE('trader')} <b>PROFILE DOSSIER:</b> <code>{user[0]}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('telegram')} <b>Username:</b> @{user[1]}\n"
-        f"{CE('wallet')} <b>Balance:</b> <code>{user[2]:.2f} ৳</code>\n"
-        f"{CE('diamond')} <b>Plan:</b> <code>{plan_info['plan_name']}</code>\n"
-        f"{CE('date')} <b>Expiry:</b> <code>{plan_info['remaining_str']}</code>\n"
-        f"{CE('power')} <b>Slots Used:</b> <code>{plan_info['current_bots']}/{plan_info['max_bots']}</code>\n"
-        f"{CE('shield')} <b>Status:</b> {status}\n"
-        f"{CE('date')} <b>Joined:</b> <code>{user[6]}</code>"
-    )
-    ban_text = "Unban User" if user[5] == 1 else "Ban User"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Adjust Balance (+/- ৳)", callback_data=f"adm_adjbal_{uid}", style="success", icon_id=EMOJIS["money"])],
-        [ikb(ban_text, callback_data=f"adm_toggleban_{uid}", style="danger", icon_id=EMOJIS["close"])],
-        [ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])]
-    ])
-    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-
-@dp.callback_query(F.data.startswith("adm_toggleban_"))
-async def adm_toggleban(callback: types.CallbackQuery):
-    uid = int(callback.data.split("_")[2])
-    with get_db() as conn:
-        cur_ban = conn.execute("SELECT is_banned FROM users WHERE user_id=?", (uid,)).fetchone()[0]
-        new_ban = 0 if cur_ban == 1 else 1
-        conn.execute("UPDATE users SET is_banned=? WHERE user_id=?", (new_ban, uid))
-        conn.commit()
-    await callback.answer("User status updated!", show_alert=True)
-    await callback.message.delete()
-
-@dp.callback_query(F.data.startswith("adm_adjbal_"))
-async def adm_adjust_prompt(callback: types.CallbackQuery, state: FSMContext):
-    uid = callback.data.split("_")[2]
-    await state.update_data(target_user=uid)
-    await callback.message.answer(
-        f"{CE('wallet')} <b>Enter adjustment in ৳ for <code>{uid}</code>:</b>\n"
-        f"<i>Examples:</i> <code>50</code> to add, <code>-20</code> to deduct.",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(AdminStates.adjust_balance)
-
-@dp.message(AdminStates.adjust_balance)
-async def adm_adjust_balance_proc(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    data = await state.get_data()
-    uid = int(data.get('target_user', 0))
-    await state.clear()
-    
-    try:
-        amount = float(message.text.strip())
-    except ValueError:
-        return await message.answer(f"{CE('close')} Invalid numerical amount.")
-
-    with get_db() as conn:
-        conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
-        conn.commit()
-        new_bal = conn.execute("SELECT balance FROM users WHERE user_id=?", (uid,)).fetchone()[0]
-
-    await message.answer(f"{CE('done')} <b>Balance updated!</b> User now holds: <code>{new_bal:.2f} ৳</code>", parse_mode="HTML")
-    try:
-        await bot.send_message(
-            uid,
-            f"{CE('notice')} <b>Wallet Balance Adjustment Notice:</b>\n"
-            f"An administrator has updated your balance.\n"
-            f"{CE('money')} <b>New Available Balance:</b> <code>{new_bal:.2f} ৳</code>",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-# 5. Manage Paid Plans (Add & Delete Plans)
-@dp.callback_query(F.data == "adm_manage_plans")
-async def adm_manage_plans(callback: types.CallbackQuery, state: FSMContext):
-    with get_db() as conn:
-        plans = conn.execute("SELECT * FROM plans ORDER BY price ASC").fetchall()
-
-    text = f"{CE('diamond')} <b>PAID SUBSCRIPTION TIERS</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    buttons = []
-    for p in plans:
-        text += f"• <b>{p[1]}</b> | <code>{p[2]:.2f} ৳</code> | {p[3]} Days | Max {p[4]} Bots\n"
-        buttons.append([ikb(f"Delete '{p[1]}'", callback_data=f"delplan_{p[0]}", style="danger", icon_id=EMOJIS["delete"])])
-
-    buttons.append([ikb("Create Subscription Tier", callback_data="adm_add_plan_btn", style="success", icon_id=EMOJIS["arrow_right"])])
-    buttons.append([ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])])
-    
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
-
-@dp.callback_query(F.data.startswith("delplan_"))
-async def adm_del_plan_call(callback: types.CallbackQuery, state: FSMContext):
-    plan_id = int(callback.data.split("_")[1])
-    with get_db() as conn:
-        conn.execute("DELETE FROM plans WHERE id=?", (plan_id,))
-        conn.commit()
-    await callback.answer("Plan removed successfully!", show_alert=True)
-    await adm_manage_plans(callback, state)
-
-@dp.callback_query(F.data == "adm_add_plan_btn")
-async def adm_add_plan_prompt(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(
-        f"{CE('sms')} <b>Send configuration in the following format:</b>\n"
-        f"<code>Name | Price (in ৳) | Duration Days | Max Bots | Description</code>\n\n"
-        f"<i>Example:</i> <code>Pro Host | 150.0 | 30 | 5 | Fast 24/7 dedicated hosting</code>",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(AdminStates.add_plan)
-
-@dp.message(AdminStates.add_plan)
-async def adm_save_plan(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
+# --- Step Handlers ---
+def process_add_plan(message):
     try:
         parts = [p.strip() for p in message.text.split("|")]
-        name = parts[0]
-        price = float(parts[1])
-        days = int(parts[2])
-        max_bots = int(parts[3])
-        desc = parts[4]
-    except Exception:
-        return await message.answer(f"{CE('close')} <b>Invalid syntax or values.</b> Operation canceled.")
+        name, limit, price, duration, buy_link = parts[0], int(parts[1]), parts[2], int(parts[3]), parts[4]
+        add_plan_db(name, limit, price, duration, buy_link)
+        safe_send(message.chat.id, f"{CE('done')} <b>Plan <code>{name}</code> created successfully!</b>")
+    except Exception as e:
+        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Format:</b> <code>{e}</code>")
 
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO plans (name, price, duration_days, max_bots, description) VALUES (?, ?, ?, ?, ?)",
-            (name, price, days, max_bots, desc)
-        )
-        conn.commit()
-        
-    await message.answer(
-        f"{CE('done')} <b>Plan '{name}' successfully created!</b>\n"
-        f"Price: <code>{price:.2f} ৳</code> | Days: <code>{days}</code> | Slots: <code>{max_bots}</code>",
-        parse_mode="HTML"
-    )
-
-# 6. Payment Gateways Update
-@dp.callback_query(F.data == "adm_payments")
-async def adm_payments_menu(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(
-        f"{CE('wallet')} <b>UPDATE PAYMENT GATEWAYS</b>\n\n"
-        f"Send in format: <code>&lt;Method&gt; &lt;Value&gt;</code>\n"
-        f"Supported channels: <code>bkash</code>, <code>nagad</code>, <code>binance</code>\n\n"
-        f"<i>Example:</i> <code>bkash 01711223344</code>",
-        reply_markup=cancel_btn(),
-        parse_mode="HTML"
-    )
-    await state.set_state(AdminStates.update_payment)
-
-@dp.message(AdminStates.update_payment)
-async def adm_save_payment(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    parts = message.text.split(" ", 1)
-    if len(parts) != 2:
-        return await message.answer(f"{CE('close')} Invalid format.")
-    method, val = parts[0].lower().strip(), parts[1].strip()
-    
-    key_map = {"bkash": "bkash_number", "nagad": "nagad_number", "binance": "binance_id"}
-    if method not in key_map:
-        return await message.answer(f"{CE('close')} Unrecognized gateway channel.")
-        
-    set_setting(key_map[method], val)
-    await message.answer(f"{CE('done')} <b>Channel '{method}' updated to:</b> <code>{val}</code>", parse_mode="HTML")
-
-# 7. Broadcast Announcement
-@dp.callback_query(F.data == "adm_broadcast")
-async def adm_broadcast_prompt(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('notice')} <b>Send the announcement text you wish to broadcast:</b>", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.broadcast_msg)
-
-@dp.message(AdminStates.broadcast_msg)
-async def adm_broadcast_execute(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    text = message.text
-    with get_db() as conn:
-        users = conn.execute("SELECT user_id FROM users").fetchall()
-        
-    sent, failed = 0, 0
-    status_msg = await message.answer(f"{CE('loading')} <i>Transmitting broadcast...</i>", parse_mode="HTML")
-    
-    for (u_id,) in users:
+def process_write_message(message):
+    user_id = message.from_user.id
+    header = f"{CE('sms')} <b>Support Ticket Relay</b>\n\n{CE('trader')} <b>User:</b> <code>{user_id}</code>"
+    for aid in admin_ids | {OWNER_ID}:
         try:
-            await bot.send_message(u_id, f"{CE('notice')} <b>OFFICIAL NETWORK BROADCAST</b>\n\n{text}", parse_mode="HTML")
-            sent += 1
-            await asyncio.sleep(0.04)
-        except Exception:
-            failed += 1
-            
-    await status_msg.edit_text(
-        f"{CE('done')} <b>Broadcast Completed!</b>\n"
-        f"• Delivered: <code>{sent}</code>\n"
-        f"• Failed/Blocked: <code>{failed}</code>",
-        parse_mode="HTML"
+            safe_send(aid, header)
+            bot.copy_message(aid, message.chat.id, message.message_id)
+        except Exception: pass
+    safe_send(message.chat.id, f"{CE('done')} <b>Message transmitted to support.</b>")
+
+def process_add_subscription_target(message):
+    identifier = message.text.strip()
+    uid = resolve_user_identifier(identifier) or (int(identifier) if identifier.isdigit() else None)
+    if not uid: return safe_send(message.chat.id, f"{CE('close')} <b>User not found.</b>")
+    plans = get_all_plans()
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for plan_id, name, limit, price, duration, _ in plans:
+        markup.add(cbtn(f"{name} ({limit} slots, {duration}d)", callback_data=f"grantsub_{uid}_{plan_id}", style="primary", icon="diamond"))
+    safe_send(message.chat.id, f"{CE('diamond')} <b>Select tier to grant:</b>", reply_markup=markup)
+
+def process_manual_install(message):
+    pkg_input = message.text.strip()
+    status_msg = safe_send(message.chat.id, f"{CE('loading')} <i>Installing package:</i> <code>{pkg_input}</code>...")
+    cmd = ["npm", "install", "-g", pkg_input[4:]] if pkg_input.startswith("npm:") else [sys.executable, "-m", "pip", "install", "--user", pkg_input]
+
+    def run_install():
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if res.returncode == 0:
+            bot.edit_message_text(f"{CE('done')} <b><code>{pkg_input}</code> installed successfully.</b>", message.chat.id, status_msg.message_id, parse_mode="HTML")
+        else:
+            bot.edit_message_text(f"{CE('close')} <b>Installation Failed.</b>", message.chat.id, status_msg.message_id, parse_mode="HTML")
+    threading.Thread(target=run_install).start()
+
+def _logic_manual_install(message):
+    msg = safe_send(message.chat.id, f"{CE('power')} <b>Send library name to install:</b>\n<i>(e.g. requests, telebot, or npm:express)</i>")
+    safe_next_step(msg, process_manual_install)
+
+def _logic_help(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(cbtn("Write Message", callback_data="write_message_init", style="primary", icon="sms"))
+    markup.row(
+        cbtn("FAQ", callback_data="help_faq", style="primary", icon="notice"),
+        cbtn("Terms", callback_data="help_terms", style="primary", icon="logs")
+    )
+    safe_send(message.chat.id, f"{CE('support')} <b>Customer Helpdesk</b>", reply_markup=markup)
+
+def _logic_updates_channel(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(cbtn("Updates Channel", url=UPDATE_CHANNEL, style="primary", icon="link"))
+    safe_send(message.chat.id, f"{CE('link')} <b>Official Transmission Channel</b>", reply_markup=markup)
+
+def _logic_bot_speed(message):
+    user_id = message.from_user.id
+    start = time.time()
+    try: bot.get_me()
+    except Exception: pass
+    latency = round((time.time() - start) * 1000, 2)
+    safe_send(
+        message.chat.id,
+        f"{CE('speed')} <b>SERVER DIAGNOSTIC BENCHMARK:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{CE('done')} <b>Latency:</b> <code>{latency} ms</code>\n"
+        f"{CE('power')} <b>State:</b> <code>{'Locked' if bot_locked else 'Active'}</code>\n"
+        f"{CE('shield')} <b>Authority:</b> <code>{get_user_status_line(user_id)}</code>"
     )
 
-# 8. Manage Admins
-@dp.callback_query(F.data == "adm_manage_admins")
-async def adm_manage_admins_menu(callback: types.CallbackQuery):
-    with get_db() as conn:
-        admins = conn.execute("SELECT user_id FROM admins").fetchall()
-    text = f"{CE('shield')} <b>AUTHORIZED SERVER ADMINISTRATORS:</b>\n\n"
-    for (aid,) in admins:
-        text += f"• <code>{aid}</code> {'(Primary Admin)' if aid == PRIMARY_ADMIN else ''}\n"
+def _logic_statistics(message):
+    user_id = message.from_user.id
+    total_files = sum(len(f) for f in user_files.values())
+    running = sum(1 for skey, info in bot_scripts.items() if info.get("script_owner_id") == user_id)
+    safe_send(
+        message.chat.id,
+        f"{CE('trader')} <b>INFRASTRUCTURE STATISTICS:</b>\n\n"
+        f"{CE('link')} <b>Registered Users:</b> <code>{len(active_users)}</code>\n"
+        f"{CE('power')} <b>Hosted Containers:</b> <code>{total_files}</code>\n"
+        f"{CE('done')} <b>Active Processes:</b> <code>{len(bot_scripts)}</code>\n"
+        f"{CE('speed')} <b>Your Active Bots:</b> <code>{running}</code>"
+    )
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [ikb("Add Co-Admin", callback_data="add_admin_prompt", style="success", icon_id=EMOJIS["trader"])],
-        [ikb("Remove Co-Admin", callback_data="remove_admin_prompt", style="danger", icon_id=EMOJIS["delete"])],
-        [ikb("Back to Admin Panel", callback_data="back_admin_root", style="primary", icon_id=EMOJIS["close"])]
-    ])
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+def _logic_contact_owner(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(cbtn("Contact Owner", url=f"https://t.me/{get_contact_owner_username().lstrip('@')}", style="success", icon="support"))
+    safe_send(message.chat.id, f"{CE('support')} <b>Customer Care Consultant:</b>", reply_markup=markup)
 
-@dp.callback_query(F.data == "add_admin_prompt")
-async def add_admin_step(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('trader')} Send the numerical Telegram ID of the user to promote:", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.add_admin)
-
-@dp.message(AdminStates.add_admin)
-async def save_admin(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
+def safe_send(chat_id, text, reply_markup=None):
     try:
-        aid = int(message.text.strip())
-        with get_db() as conn:
-            conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (aid,))
-            conn.commit()
-        await message.answer(f"{CE('done')} User <code>{aid}</code> promoted to Admin.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
-    except ValueError:
-        await message.answer(f"{CE('close')} Invalid Telegram ID.")
+        return bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode="HTML")
+    except Exception as e:
+        logger.warning(f"HTML send failed, fallback plain: {e}")
+        try: return bot.send_message(chat_id, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
+        except Exception: return None
 
-@dp.callback_query(F.data == "remove_admin_prompt")
-async def remove_admin_step(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('delete')} Send the numerical Telegram ID to remove from Admins:", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.remove_admin)
+def resolve_user_identifier(identifier):
+    identifier = identifier.strip().lstrip("@").lower()
+    for uid, profile in user_profiles.items():
+        if profile.get("username") and profile["username"].lower() == identifier:
+            return uid
+    return None
 
-@dp.message(AdminStates.remove_admin)
-async def delete_admin(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
+BUTTON_MAPPING = {
+    "Updates Channel": _logic_updates_channel,
+    "Upload File": _logic_upload_file,
+    "Check Files": _logic_check_files,
+    "Bot Speed": _logic_bot_speed,
+    "Statistics": _logic_statistics,
+    "Contact Owner": _logic_contact_owner,
+    "Manual Install": _logic_manual_install,
+    "Help Desk": _logic_help,
+    "Admin Panel": lambda m: safe_send(m.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+}
+
+@bot.message_handler(func=lambda m: m.text in BUTTON_MAPPING)
+def handle_main_buttons(message):
+    if is_banned(message.from_user.id): return
+    if bot_locked and message.from_user.id not in admin_ids:
+        safe_send(message.chat.id, get_bot_off_message())
         return
-    await state.clear()
-    try:
-        aid = int(message.text.strip())
-        if aid == PRIMARY_ADMIN:
-            return await message.answer(f"{CE('close')} Cannot remove the Primary Administrator!")
-        with get_db() as conn:
-            conn.execute("DELETE FROM admins WHERE user_id=?", (aid,))
-            conn.commit()
-        await message.answer(f"{CE('done')} Administrator <code>{aid}</code> demoted.", reply_markup=main_reply_keyboard(message.from_user.id), parse_mode="HTML")
-    except ValueError:
-        await message.answer(f"{CE('close')} Invalid Telegram ID.")
+    if not enforce_force_sub(message.from_user.id, message.chat.id): return
+    touch_last_seen(message.from_user.id)
+    BUTTON_MAPPING[message.text](message)
 
-# 9. Support Settings
-@dp.callback_query(F.data == "adm_support")
-async def adm_support_prompt(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(f"{CE('support')} <b>Send new support username handle (e.g. @YourDomains):</b>", reply_markup=cancel_btn(), parse_mode="HTML")
-    await state.set_state(AdminStates.update_support)
+@bot.message_handler(commands=["start"])
+def start_cmd(message):
+    _logic_send_welcome(message)
 
-@dp.message(AdminStates.update_support)
-async def adm_save_support(message: types.Message, state: FSMContext):
-    if await check_menu_button_escape(message, state):
-        return
-    await state.clear()
-    h = message.text.strip()
-    set_setting("support_user", h)
-    await message.answer(f"{CE('done')} <b>Support handle updated to:</b> <code>{h}</code>", parse_mode="HTML")
+# --- Cleanup & Expiry Routine ---
+def cleanup():
+    for key in list(bot_scripts.keys()):
+        kill_process_tree(bot_scripts[key])
 
-# Common Return to Admin Root
-@dp.callback_query(F.data == "back_admin_root")
-async def back_to_admin_root(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await admin_panel_root(callback.message)
-
-# Cancel Action Handler
-@dp.callback_query(F.data == "cancel_action")
-async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.delete()
-    await callback.message.answer(f"{CE('close')} <b>Operation Cancelled.</b>", reply_markup=main_reply_keyboard(callback.from_user.id), parse_mode="HTML")
-
-# ─── EXPIRY CRON & MONITORING BACKGROUND TASK ──────────────────────────────
-async def background_scheduler():
-    """Continuously monitors plan expirations and shuts down running instances."""
+def expiry_warning_loop():
     while True:
         try:
-            with get_db() as conn:
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                expired_users = conn.execute(
-                    "SELECT user_id FROM users WHERE plan_expiry IS NOT NULL AND plan_expiry < ?",
-                    (now,)
-                ).fetchall()
-                
-                for (u_id,) in expired_users:
-                    conn.execute("UPDATE users SET plan_id=0, plan_expiry=NULL WHERE user_id=?", (u_id,))
-                    bots = conn.execute("SELECT bot_id FROM bots WHERE user_id=?", (u_id,)).fetchall()
-                    for (b_id,) in bots:
-                        stop_bot_instance(b_id)
+            conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+            c = conn.cursor()
+            now = datetime.now()
+            c.execute("SELECT user_id, plan_name, expiry FROM subscriptions WHERE expired_notified = 0")
+            for uid, pname, exp_str in c.fetchall():
+                try: exp = datetime.fromisoformat(exp_str)
+                except Exception: continue
+                if now > exp:
+                    safe_send(uid, f"{CE('notice')} <b>Subscription Plan {pname} Expired!</b> Renew to restore full container slots.")
+                    remove_user_limit_override(uid)
+                    c.execute("UPDATE subscriptions SET expired_notified = 1 WHERE user_id = ?", (uid,))
                     conn.commit()
-                    
-                    try:
-                        await bot.send_message(
-                            u_id,
-                            f"{CE('notice')} <b>SUBSCRIPTION EXPIRED NOTICE</b>\n\n"
-                            f"Your cloud hosting plan duration has expired. "
-                            f"All active processes have been stopped automatically. "
-                            f"Please renew your subscription via <b>Plans</b>.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
-        except Exception as e:
-            logging.error(f"Error in scheduler loop: {e}")
-            
-        await asyncio.sleep(60)
+            conn.close()
+        except Exception: pass
+        time.sleep(3600)
 
-# ─── APPLICATION RUNNER ───────────────────────────────────────────────────
-async def main():
-    print("==============================================")
-    print(" NEBULA CLOUD HOST ENGINE - ACTIVE ")
-    print(" Primary Admin ID: 2014144404 ")
-    print(" Database: nebulahost.db ")
-    print(" Support: @YourDomains ")
-    print(" 2-Step Strict Requirements Deployment: Active ")
-    print(" Currency: BDT (৳) | Styling: Telegram 7.0+ ")
-    print("==============================================")
-    asyncio.create_task(background_scheduler())
-    await dp.start_polling(bot)
+atexit.register(cleanup)
+threading.Thread(target=expiry_warning_loop, daemon=True).start()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("\n[!] Shutting down all active child processes...")
-        for b_id in list(ACTIVE_PROCESSES.keys()):
-            stop_bot_instance(b_id)
-        print("[+] Engine clean shutdown complete.")
+    logger.info("Starting Nebula Host Cloud...")
+    keep_alive()
+    bot.infinity_polling(timeout=60, long_polling_timeout=30)
