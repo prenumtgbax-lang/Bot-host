@@ -68,21 +68,21 @@ OWNER_ID = 2014144404
 ADMIN_ID = 2014144404
 YOUR_USERNAME = "@YourDomains"
 SUPPORT_CONTACT_ID = 2014144404
-UPDATE_CHANNEL = "https://t.me/YourChannel"
+UPDATE_CHANNEL = "https://t.me/BABY_CODER_1"
 
 # Binance Payment Gateways
-BINANCE_PAY_ID = "12345678"
-BINANCE_USDT_ADDRESS = "TQn9Y2KhPzW9H1L8o9qJ2Q5k4h3g2f1TRX"
+BINANCE_PAY_ID = "746899490"
+BINANCE_USDT_ADDRESS = "TVgQoqGMipsdYsbtV7PPj6FKW9MM29fVDq"
 
 # Referral Engine Settings
-REFERRAL_JOIN_BONUS = 1.0  # Balance in USD for inviting a member
-REFERRAL_DEPOSIT_COMMISSION = 0.10  # 10% commission on deposit
+REFERRAL_JOIN_BONUS = 0.01  # Balance in USD for inviting a member
+REFERRAL_DEPOSIT_COMMISSION = 0.05  # 10% commission on deposit
 
 FORCE_SUB_CHANNELS = [
     {
         "name": "Updates Channel",
-        "chat_id": "@YourChannel",
-        "url": "https://t.me/YourChannel",
+        "chat_id": "-1002301596956",
+        "url": "https://t.me/BABY_CODER_1",
     }
 ]
 
@@ -90,11 +90,11 @@ FORCE_SUB_CHANNELS = [
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_BOTS_DIR = os.path.join(BASE_DIR, "upload_bots")
 DATABASE_DIR = os.path.join(BASE_DIR, "database_store")
-DATABASE_PATH = os.path.join(DATABASE_DIR, "nebulahost.db")
+DATABASE_PATH = os.path.join(DATABASE_DIR, "nebulahjddjjost.db")
 BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
 
-FREE_USER_LIMIT = 2
-SUBSCRIBED_USER_LIMIT = 15
+FREE_USER_LIMIT = 1
+SUBSCRIBED_USER_LIMIT = 2
 ADMIN_LIMIT = 999
 OWNER_LIMIT = float("inf")
 
