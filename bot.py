@@ -67,12 +67,12 @@ def keep_alive():
     print("[+] Background Keep-Alive Server Online.")
 
 # ── CONFIGURATION & CREDENTIALS ─────────────────────────────────────────────
-TOKEN = "8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU"
+TOKEN = "8675366388:AAGmd_idkGdVv8aoyRmCE2VbOjvRrTm_7uM"
 OWNER_ID = 2014144404
 ADMIN_ID = 2014144404
 YOUR_USERNAME = "@YourDomains"
 SUPPORT_CONTACT_ID = 2014144404
-UPDATE_CHANNEL = "https://t.me/YourChannel"
+UPDATE_CHANNEL = "https://t.me/BABY_CODER_1"
 
 # Binance Pay Integration Config
 BINANCE_API_KEY = "e0e4WavqDOqdmKRZHoNPcNt8TsYAUf17FdpVSasXm54QGVGs8JBp9ySkFTTPbcej"
