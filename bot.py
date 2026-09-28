@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║          NEBULA CLOUD HOSTING BOT — 100% UNLOCKED & CRASH-PROOF           ║
+║         NEBULA CLOUD HOSTING BOT — 100% WORKING & ZERO-CRASH              ║
 ║                                                                           ║
 ║  • Target Admin ID: 2014144404                                            ║
 ║  • Support: @YourDomains                                                  ║
 ║  • Token: 8675366388:AAGaY5OCj7NrzLbLPUt5cYID6ZnDpRDoLMU                 ║
-║  • All User & Admin Buttons 100% Live, Working & Interactive              ║
+║  • 100% Working Buttons (Fixed all Freeze, Parsing & Callback Issues)     ║
 ║  • Safe Next-Step Escaper: Buttons Never Freeze or Get Stuck              ║
-║  • Gateways: Binance Pay ID & USDT Network (Admin Toggleable)             ║
-║  • Auto Admin File Dispatch & 1-Click Launch Approval                     ║
+║  • Gateway: Binance Pay ID & USDT (Admin Toggleable)                      ║
 ║  • Full Bot Management: Start/Stop/Restart/Delete/Download Backup         ║
-║  • User Balance Modifier (+/-) & Multi-Tier Dynamic Plan Manager          ║
+║  • Admin Controls: User Balance (+/-), Plan Manager & All Deployed Bots   ║
 ║  • Referral Commission & Bonus Engine Integrated                          ║
-║  • 100% Compliant Custom Emojis (No ENTITY_TEXT_INVALID)                  ║
+║  • Background Keep-Alive Server & 409 Conflict Auto-Recovery              ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -42,7 +41,7 @@ import psutil
 import telebot
 from telebot import types
 
-# ── KEEP-ALIVE SERVER (FOR RENDER / KOYEB / PAAS) ───────────────────────────
+# ── KEEP-ALIVE SERVER (FOR 24/7 DEPLOYMENT ON RENDER/KOYEB/VPS) ────────────
 app = Flask(__name__)
 
 @app.route("/")
@@ -102,79 +101,7 @@ os.makedirs(BACKUPS_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN)
 
-# ── TELEGRAM CUSTOM EMOJIS (ID + STRICT COMPLIANT FALLBACK EMOJI) ──────────
-EMOJIS_DATA = {
-    "wallet": ("6073556477824472025", "💳"),
-    "balance": ("6073556477824472025", "💳"),
-    "support": ("6073400909814042854", "🎧"),
-    "gift": ("6071123877067494706", "🎁"),
-    "telegram": ("5472217698689638395", "✈️"),
-    "up": ("6204251568137574946", "📤"),
-    "download": ("6204251568137574946", "📥"),
-    "sms": ("6206112371308500200", "✉️"),
-    "done": ("6206378324273403309", "✅"),
-    "loading": ("6206118633370818254", "⏳"),
-    "notice": ("6129433877791382400", "🔔"),
-    "fire": ("6131660139729522939", "🔥"),
-    "binance": ("6237610939902858402", "🟡"),
-    "world": ("6071096140168696563", "🌐"),
-    "power": ("6037220740967697584", "⚡"),
-    "percent": ("6039591820613127611", "📊"),
-    "arrow_right": ("6244676977148564926", "➡️"),
-    "date": ("6244762094810436779", "📅"),
-    "delete": ("5341319525142905998", "🗑️"),
-    "close": ("5341718759532938160", "❌"),
-    "link": ("6111396350883010682", "🔗"),
-    "admin": ("6111432544572414098", "🛡️"),
-    "trader": ("6053216517732964810", "👤"),
-    "boom": ("6052973985224728368", "💥"),
-    "crown": ("6314576556278685829", "👑"),
-    "shield": ("6314537472076291328", "🛡️"),
-    "diamond": ("6314583342327011784", "💎"),
-    "speed": ("6311939527963319025", "⚡"),
-    "play": ("6314426086394436542", "▶️"),
-    "stop": ("6314185920413179479", "⏹️"),
-    "restart": ("6312314362644143742", "🔄"),
-    "logs": ("6314203594203602602", "📜"),
-    "money": ("6312104703815590263", "💰"),
-    "search": ("6311848921333245664", "🔍"),
-    "sparkle": ("6314480331831385997", "✨"),
-    "star": ("6314235179393096157", "⭐")
-}
-
-def CE(key: str) -> str:
-    """Wraps valid unicode character to prevent Telegram ENTITY_TEXT_INVALID error."""
-    emoji_id, fallback = EMOJIS_DATA.get(key, ("6314480331831385997", "✨"))
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-
-# ── BOT API 7.0+ BUTTON STYLE & CUSTOM ICON ENHANCER ───────────────────────
-class StyledInlineButton(types.InlineKeyboardButton):
-    def __init__(self, text, callback_data=None, url=None, style=None, icon=None, **kwargs):
-        super().__init__(text, callback_data=callback_data, url=url, **kwargs)
-        self.style = style
-        if icon and icon in EMOJIS_DATA:
-            self.icon_custom_emoji_id = EMOJIS_DATA[icon][0]
-
-    def to_dict(self):
-        d = super().to_dict()
-        if self.style:
-            d["style"] = self.style
-        if getattr(self, "icon_custom_emoji_id", None):
-            d["icon_custom_emoji_id"] = self.icon_custom_emoji_id
-        return d
-
-def cbtn(text, callback_data=None, url=None, style="primary", icon=None):
-    return StyledInlineButton(text, callback_data=callback_data, url=url, style=style, icon=icon)
-
-def rkbtn(text, style="primary", icon=None):
-    btn = types.KeyboardButton(text)
-    if style:
-        btn.style = style
-    if icon and icon in EMOJIS_DATA:
-        btn.icon_custom_emoji_id = EMOJIS_DATA[icon][0]
-    return btn
-
-# --- Memory Cache ---
+# --- In-Memory Caches ---
 bot_scripts = {}
 user_subscriptions = {}
 user_files = {}
@@ -189,42 +116,39 @@ pending_approvals = {}
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- Safe Messaging Delivery (Zero Crash Shield) ---
+# --- Safe Messaging Delivery Engine ---
 def safe_send(chat_id, text, reply_markup=None):
     try:
         return bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode="HTML")
-    except telebot.apihelper.ApiTelegramException as e:
-        clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
+    except Exception as e:
+        logger.error(f"safe_send error: {e}")
         try:
-            return bot.send_message(chat_id, clean_text, reply_markup=reply_markup, parse_mode="HTML")
+            clean_text = re.sub(r'<[^>]*>', '', text)
+            return bot.send_message(chat_id, clean_text, reply_markup=reply_markup)
         except Exception:
-            return bot.send_message(chat_id, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
-    except Exception:
-        return None
+            return None
 
 def safe_reply(message, text, reply_markup=None):
     try:
         return bot.reply_to(message, text, reply_markup=reply_markup, parse_mode="HTML")
-    except telebot.apihelper.ApiTelegramException as e:
-        clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
+    except Exception as e:
+        logger.error(f"safe_reply error: {e}")
         try:
-            return bot.reply_to(message, clean_text, reply_markup=reply_markup, parse_mode="HTML")
+            clean_text = re.sub(r'<[^>]*>', '', text)
+            return bot.reply_to(message, clean_text, reply_markup=reply_markup)
         except Exception:
-            return bot.reply_to(message, re.sub(r'<[^>]*>', '', text), reply_markup=reply_markup)
-    except Exception:
-        return None
+            return None
 
 def safe_edit(chat_id, message_id, text, reply_markup=None):
     try:
         return bot.edit_message_text(text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
-    except telebot.apihelper.ApiTelegramException as e:
-        clean_text = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
+    except Exception as e:
+        logger.error(f"safe_edit error: {e}")
         try:
-            return bot.edit_message_text(clean_text, chat_id, message_id, reply_markup=reply_markup, parse_mode="HTML")
+            clean_text = re.sub(r'<[^>]*>', '', text)
+            return bot.edit_message_text(clean_text, chat_id, message_id, reply_markup=reply_markup)
         except Exception:
-            return bot.edit_message_text(re.sub(r'<[^>]*>', '', text), chat_id, message_id, reply_markup=reply_markup)
-    except Exception:
-        return None
+            return None
 
 # --- Database Schema & Initialization ---
 DB_LOCK = threading.Lock()
@@ -436,7 +360,7 @@ def get_user_file_limit(user_id):
 def get_user_file_count(user_id):
     return len(user_files.get(user_id, []))
 
-# ─── RELIABLE PACKAGE INSTALLER (PEP-668 / LINUX SAFE) ─────────────────────
+# ─── RELIABLE PACKAGE INSTALLER ────────────────────────────────────────────
 TELEGRAM_MODULES = {
     "telebot": "pyTelegramBotAPI",
     "telegram": "python-telegram-bot",
@@ -568,7 +492,7 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             with open(log_file_path, "r", errors="ignore") as f:
                 tail = "".join(f.readlines()[-15:])
             if message_obj_for_reply:
-                safe_send(script_owner_id, f"{CE('notice')} <b>Execution Stopped on Launch:</b>\n<pre>{html.escape(tail)}</pre>")
+                safe_send(script_owner_id, f"⚠️ <b>Execution Stopped on Launch:</b>\n<pre>{html.escape(tail)}</pre>")
             return False
 
         bot_scripts[script_key] = {
@@ -580,10 +504,10 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             "type": "py"
         }
 
-        safe_send(script_owner_id, f"{CE('done')} <b>Container Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)")
+        safe_send(script_owner_id, f"✅ <b>Container Online:</b> <code>{file_name}</code> (PID: <code>{process.pid}</code>)")
         return True
     except Exception as e:
-        safe_send(script_owner_id, f"{CE('close')} <b>Process Failure:</b> <code>{str(e)}</code>")
+        safe_send(script_owner_id, f"❌ <b>Process Failure:</b> <code>{str(e)}</code>")
         return False
 
 # ─── REAL PURGE / BOT DELETION ENGINE ──────────────────────────────────────
@@ -607,58 +531,57 @@ def execute_permanent_bot_delete(owner_id, fname, executed_by_admin=False):
     except Exception: pass
 
     if executed_by_admin and owner_id != OWNER_ID:
-        safe_send(owner_id, f"{CE('delete')} <b>Administrative Notice:</b>\nYour bot container <code>{fname}</code> was terminated and purged from the server.")
+        safe_send(owner_id, f"🗑️ <b>Administrative Notice:</b>\nYour bot container <code>{fname}</code> was terminated and purged from the server.")
 
-# ─── MENUS & KEYBOARDS (ZERO RAW EMOJIS) ────────────────────────────────────
+# ─── RELIABLE 100% WORKING MENUS & KEYBOARDS ──────────────────────────────
 COMMAND_BUTTONS_USER = [
-    [("Upload File", "success", "up"), ("My Bots", "primary", "trader")],
-    [("Plans & Upgrade", "primary", "diamond"), ("Wallet & Deposit", "success", "wallet")],
-    [("Server Benchmark", "primary", "speed"), ("Referral Program", "primary", "gift")],
-    [("Help Desk", "primary", "notice"), ("Manual Install", "primary", "power")],
-    [("Updates Channel", "primary", "link")]
+    ["📤 Upload File", "🤖 My Bots"],
+    ["💎 Plans & Upgrade", "💳 Wallet & Deposit"],
+    ["⚡ Server Benchmark", "🎁 Referral Program"],
+    ["🎧 Help Desk", "⚙️ Manual Install"],
+    ["📢 Updates Channel"]
 ]
 
 COMMAND_BUTTONS_ADMIN = [
-    [("Upload File", "success", "up"), ("My Bots", "primary", "trader")],
-    [("Plans & Upgrade", "primary", "diamond"), ("Wallet & Deposit", "success", "wallet")],
-    [("Server Benchmark", "primary", "speed"), ("Referral Program", "primary", "gift")],
-    [("Admin Console", "danger", "admin"), ("Manual Install", "primary", "power")],
-    [("Help Desk", "primary", "notice"), ("Updates Channel", "primary", "link")]
+    ["📤 Upload File", "🤖 My Bots"],
+    ["💎 Plans & Upgrade", "💳 Wallet & Deposit"],
+    ["⚡ Server Benchmark", "🎁 Referral Program"],
+    ["👑 Admin Console", "⚙️ Manual Install"],
+    ["🎧 Help Desk", "📢 Updates Channel"]
 ]
 
 def create_main_reply_keyboard(user_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     layout = COMMAND_BUTTONS_ADMIN if (user_id in admin_ids or user_id == OWNER_ID) else COMMAND_BUTTONS_USER
     for row in layout:
-        row_btns = [rkbtn(txt, style=st, icon=ic) for txt, st, ic in row]
-        markup.add(*row_btns)
+        markup.add(*[types.KeyboardButton(txt) for txt in row])
     return markup
 
 def create_admin_panel_inline():
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        cbtn("Manage Plans", callback_data="adm_plans_mgr", style="primary", icon="diamond"),
-        cbtn("All Deployed Bots", callback_data="adm_all_bots", style="primary", icon="trader"),
+        types.InlineKeyboardButton("💎 Manage Plans", callback_data="adm_plans_mgr"),
+        types.InlineKeyboardButton("🤖 All Deployed Bots", callback_data="adm_all_bots"),
     )
     markup.add(
-        cbtn("Scan User & Balance", callback_data="adm_scan_user", style="primary", icon="search"),
-        cbtn("Pending Approvals", callback_data="adm_pending_files", style="primary", icon="loading"),
+        types.InlineKeyboardButton("🔍 Scan User & Balance", callback_data="adm_scan_user"),
+        types.InlineKeyboardButton("⏳ Pending Approvals", callback_data="adm_pending_files"),
     )
     markup.add(
-        cbtn("Broadcast Notice", callback_data="adm_broadcast", style="success", icon="notice"),
-        cbtn("SMS All Bot Owners", callback_data="adm_bots_sms", style="success", icon="sms"),
+        types.InlineKeyboardButton("📢 Broadcast Notice", callback_data="adm_broadcast"),
+        types.InlineKeyboardButton("📩 SMS All Bot Owners", callback_data="adm_bots_sms"),
     )
     markup.add(
-        cbtn("Binance Gateways", callback_data="adm_binance_cfg", style="primary", icon="binance"),
-        cbtn("Switch Database", callback_data="adm_change_db", style="primary", icon="world"),
+        types.InlineKeyboardButton("💳 Binance Gateways", callback_data="adm_binance_cfg"),
+        types.InlineKeyboardButton("🗄️ Switch Database", callback_data="adm_change_db"),
     )
     markup.add(
-        cbtn("Reboot All Workers", callback_data="adm_reboot_all", style="success", icon="play"),
-        cbtn("Stop All Workers", callback_data="adm_stop_all", style="danger", icon="stop"),
+        types.InlineKeyboardButton("▶️ Reboot All Workers", callback_data="adm_reboot_all"),
+        types.InlineKeyboardButton("⏹️ Stop All Workers", callback_data="adm_stop_all"),
     )
     markup.add(
-        cbtn("Lock System", callback_data="adm_lock_system", style="danger", icon="power"),
-        cbtn("Close Console", callback_data="adm_close", style="danger", icon="close"),
+        types.InlineKeyboardButton("🔒 Lock System", callback_data="adm_lock_system"),
+        types.InlineKeyboardButton("❌ Close Console", callback_data="adm_close"),
     )
     return markup
 
@@ -670,22 +593,23 @@ BUTTON_MAPPING = {
     "Wallet & Deposit": lambda m: show_wallet_menu(m.chat.id, m.from_user.id),
     "Server Benchmark": lambda m: _logic_speed(m),
     "Referral Program": lambda m: show_referral_menu(m.chat.id, m.from_user.id),
-    "Help Desk": lambda m: safe_send(m.chat.id, f"{CE('support')} <b>Dedicated Consultant:</b> {YOUR_USERNAME}\n24/7 Priority Support Desk."),
+    "Help Desk": lambda m: safe_send(m.chat.id, f"🎧 <b>Dedicated Consultant:</b> {YOUR_USERNAME}\n24/7 Priority Support Desk."),
     "Manual Install": lambda m: _prompt_manual_install(m),
-    "Updates Channel": lambda m: safe_send(m.chat.id, f"{CE('link')} <b>Official Channel:</b> {UPDATE_CHANNEL}"),
-    "Admin Console": lambda m: safe_send(m.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+    "Updates Channel": lambda m: safe_send(m.chat.id, f"📢 <b>Official Channel:</b> {UPDATE_CHANNEL}"),
+    "Admin Console": lambda m: safe_send(m.chat.id, "👑 <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
 }
 
 def match_reply_button(text):
-    t = (text or "").strip().lower()
+    t_clean = re.sub(r'[^\w\s]', '', text or '').strip().lower()
     for k in BUTTON_MAPPING:
-        if k.lower() == t or k.lower() in t or t in k.lower():
+        k_clean = re.sub(r'[^\w\s]', '', k).strip().lower()
+        if k_clean in t_clean or t_clean in k_clean:
             return BUTTON_MAPPING[k]
     return None
 
-# ─── SAFE NEXT STEP ESCAPER (PREVENTS ANY BUTTON FROM FREEZING) ────────────
+# ─── SAFE NEXT STEP ESCAPER (BUTTONS NEVER FREEZE) ────────────────────────
 def safe_next_step(msg, callback):
-    """If user taps ANY reply keyboard button or sends /start, immediately cancels pending state and executes button."""
+    """If user taps ANY menu button or sends /start, immediately cancels pending state and executes button."""
     def wrapper(message):
         text = (message.text or "").strip()
         if text.startswith("/"):
@@ -693,7 +617,7 @@ def safe_next_step(msg, callback):
                 command_start(message)
                 return
             elif text == "/admin" and (message.from_user.id in admin_ids or message.from_user.id == OWNER_ID):
-                safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+                safe_send(message.chat.id, "👑 <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
                 return
         handler = match_reply_button(text)
         if handler:
@@ -736,11 +660,11 @@ def command_start(message):
 
         if referrer_id:
             update_user_balance(referrer_id, REFERRAL_JOIN_BONUS)
-            safe_send(referrer_id, f"{CE('gift')} <b>New Referral Registered!</b>\nUser <code>{user_id}</code> joined via your link. You earned <code>${REFERRAL_JOIN_BONUS:.2f}</code> bonus!")
+            safe_send(referrer_id, f"🎁 <b>New Referral Registered!</b>\nUser <code>{user_id}</code> joined via your link. You earned <code>${REFERRAL_JOIN_BONUS:.2f}</code> bonus!")
 
     user = get_user_data(user_id)
     if user and user[6] == 1:
-        safe_send(chat_id, f"{CE('notice')} <b>Account Restricted from Accessing Network.</b>")
+        safe_send(chat_id, "⚠️ <b>Account Restricted from Accessing Network.</b>")
         return
 
     # Force Sub Verification
@@ -750,9 +674,9 @@ def command_start(message):
                 m = bot.get_chat_member(ch["chat_id"], user_id)
                 if m.status in ["left", "kicked"]:
                     markup = types.InlineKeyboardMarkup()
-                    markup.add(cbtn("Join Updates Channel", url=ch["url"], style="primary", icon="link"))
-                    markup.add(cbtn("Verify Membership", callback_data="verify_fsub", style="success", icon="done"))
-                    safe_send(chat_id, f"{CE('shield')} <b>Channel Membership Required!</b>\nPlease subscribe to our official channel to unlock container hosting slots:", reply_markup=markup)
+                    markup.add(types.InlineKeyboardButton("📢 Join Updates Channel", url=ch["url"]))
+                    markup.add(types.InlineKeyboardButton("✅ Verify Membership", callback_data="verify_fsub"))
+                    safe_send(chat_id, "🛡️ <b>Channel Membership Required!</b>\nPlease subscribe to our official channel to unlock container hosting slots:", reply_markup=markup)
                     return
             except Exception: pass
 
@@ -763,15 +687,15 @@ def command_start(message):
     limit_str = str(max_slots) if max_slots != float('inf') else "Unlimited"
 
     welcome_text = (
-        f"{CE('crown')} <b>NEBULA CLOUD HOSTING ENGINE</b> {CE('fire')}\n"
+        f"👑 <b>NEBULA CLOUD HOSTING ENGINE</b> ⚡\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>Holder:</b> <code>{html.escape(name)}</code>\n"
-        f"{CE('link')} <b>Account ID:</b> <code>{user_id}</code>\n"
-        f"{CE('wallet')} <b>Balance:</b> <code>${bal:.2f} USD</code>\n"
-        f"{CE('shield')} <b>Subscription:</b> <code>{pname}</code>\n"
-        f"{CE('power')} <b>Allocated Slots:</b> <code>{slots_used} / {limit_str}</code>\n"
+        f"👤 <b>Holder:</b> <code>{html.escape(name)}</code>\n"
+        f"🔗 <b>Account ID:</b> <code>{user_id}</code>\n"
+        f"💳 <b>Balance:</b> <code>${bal:.2f} USD</code>\n"
+        f"🛡️ <b>Subscription:</b> <code>{pname}</code>\n"
+        f"⚡ <b>Allocated Slots:</b> <code>{slots_used} / {limit_str}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('speed')} <i>High-Speed 24/7 Subprocess Container Hosting (Python & Node.js).</i>\n"
+        f"🚀 <i>High-Speed 24/7 Subprocess Container Hosting (Python & Node.js).</i>\n"
         f"<i>Select an option below to initiate operations:</i>"
     )
     safe_send(chat_id, welcome_text, reply_markup=create_main_reply_keyboard(user_id))
@@ -787,22 +711,22 @@ def handle_incoming_file(message):
 
     user = get_user_data(user_id)
     if user and user[6] == 1:
-        return safe_send(chat_id, f"{CE('notice')} <b>Account Restricted.</b>")
+        return safe_send(chat_id, "⚠️ <b>Account Restricted.</b>")
 
     limit = get_user_file_limit(user_id)
     if get_user_file_count(user_id) >= limit:
-        return safe_send(chat_id, f"{CE('close')} <b>Container Quota Full ({get_user_file_count(user_id)}/{limit})!</b> Upgrade your plan to deploy more bots.")
+        return safe_send(chat_id, f"❌ <b>Container Quota Full ({get_user_file_count(user_id)}/{limit})!</b> Upgrade your plan to deploy more bots.")
 
     filename = doc.file_name or "main.py"
     ext = os.path.splitext(filename)[1].lower()
 
     if ext not in [".py", ".js", ".zip", ".txt"]:
-        return safe_send(chat_id, f"{CE('close')} <b>Unsupported File! Send .py, .js, .zip, or requirements.txt.</b>")
+        return safe_send(chat_id, "❌ <b>Unsupported File! Send .py, .js, .zip, or requirements.txt.</b>")
 
     user_folder = get_user_folder(user_id)
 
     if filename.lower() == "requirements.txt" and user_id in user_staged_uploads:
-        wait_m = safe_reply(message, f"{CE('loading')} <i>Linking requirements.txt and preparing admin dispatch...</i>")
+        wait_m = safe_reply(message, "⏳ <i>Linking requirements.txt and preparing admin dispatch...</i>")
         file_info = bot.get_file(doc.file_id)
         downloaded = bot.download_file(file_info.file_path)
         with open(os.path.join(user_folder, "requirements.txt"), "wb") as f:
@@ -810,10 +734,10 @@ def handle_incoming_file(message):
 
         staged_fname = user_staged_uploads.pop(user_id)
         forward_bot_to_admin(user_id, staged_fname, os.path.join(user_folder, staged_fname))
-        safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>Script & Requirements forwarded to Admin! Pending approval.</b>")
+        safe_edit(chat_id, wait_m.message_id, "✅ <b>Script & Requirements forwarded to Admin! Pending approval.</b>")
         return
 
-    wait_m = safe_reply(message, f"{CE('loading')} <i>Downloading & staging file...</i>")
+    wait_m = safe_reply(message, "⏳ <i>Downloading & staging file...</i>")
     file_info = bot.get_file(doc.file_id)
     downloaded = bot.download_file(file_info.file_path)
     file_path = os.path.join(user_folder, filename)
@@ -823,22 +747,22 @@ def handle_incoming_file(message):
     if ext == ".py":
         user_staged_uploads[user_id] = filename
         step2_text = (
-            f"{CE('done')} <b>STEP 1 VERIFIED: SCRIPT PARSED!</b>\n"
+            f"✅ <b>STEP 1 VERIFIED: SCRIPT PARSED!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{CE('link')} <b>File:</b> <code>{filename}</code>\n"
+            f"📄 <b>File:</b> <code>{filename}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{CE('up')} <b>STEP 2: UPLOAD REQUIREMENTS.TXT</b>\n\n"
+            f"📤 <b>STEP 2: UPLOAD REQUIREMENTS.TXT</b>\n\n"
             f"Please send your <code>requirements.txt</code> file now.\n"
             f"<i>(If this bot requires no external libraries, tap Skip below)</i>"
         )
         markup = types.InlineKeyboardMarkup()
-        markup.add(cbtn("Skip Requirements", callback_data=f"skip_req_{filename}", style="success", icon="done"))
-        markup.add(cbtn("Cancel Deployment", callback_data="cancel_action", style="danger", icon="close"))
+        markup.add(types.InlineKeyboardButton("⚡ Skip Requirements", callback_data=f"skip_req_{filename}"))
+        markup.add(types.InlineKeyboardButton("❌ Cancel Deployment", callback_data="cancel_action"))
         safe_edit(chat_id, wait_m.message_id, step2_text, reply_markup=markup)
 
     elif ext in [".js", ".zip"]:
         forward_bot_to_admin(user_id, filename, file_path)
-        safe_edit(chat_id, wait_m.message_id, f"{CE('done')} <b>File forwarded to Admin! Waiting for approval before launch.</b>")
+        safe_edit(chat_id, wait_m.message_id, "✅ <b>File forwarded to Admin! Waiting for approval before launch.</b>")
 
 def forward_bot_to_admin(user_id, filename, file_path):
     user = get_user_data(user_id)
@@ -852,17 +776,17 @@ def forward_bot_to_admin(user_id, filename, file_path):
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        cbtn("Approve & Run", callback_data=f"apprv_{file_id}", style="success", icon="play"),
-        cbtn("Reject & Purge", callback_data=f"rjct_{file_id}", style="danger", icon="close")
+        types.InlineKeyboardButton("▶️ Approve & Run", callback_data=f"apprv_{file_id}"),
+        types.InlineKeyboardButton("🗑️ Reject & Purge", callback_data=f"rjct_{file_id}")
     )
 
     caption = (
-        f"{CE('notice')} <b>NEW HOSTING CONTAINER DISPATCHED (PENDING)</b>\n"
+        f"🔔 <b>NEW HOSTING CONTAINER DISPATCHED (PENDING)</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>User:</b> {html.escape(name)} ({username})\n"
-        f"{CE('link')} <b>User ID:</b> <code>{user_id}</code>\n"
-        f"{CE('power')} <b>File Name:</b> <code>{filename}</code>\n"
-        f"{CE('date')} <b>Time:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>"
+        f"👤 <b>User:</b> {html.escape(name)} ({username})\n"
+        f"🆔 <b>User ID:</b> <code>{user_id}</code>\n"
+        f"📄 <b>File Name:</b> <code>{filename}</code>\n"
+        f"⏰ <b>Time:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>"
     )
 
     try:
@@ -871,33 +795,33 @@ def forward_bot_to_admin(user_id, filename, file_path):
     except Exception as e:
         safe_send(OWNER_ID, caption + f"\n\n<i>(Attachment relay fallback: {e})</i>", reply_markup=markup)
 
-# ─── BINANCE GATEWAY SETTINGS & TOGGLE ─────────────────────────────────────
+# ─── BINANCE GATEWAY CONFIGURATION ─────────────────────────────────────────
 def show_binance_config_panel(chat_id, message_id=None):
     enabled = get_setting("binance_enabled", "1") == "1"
     pay_id = get_setting("binance_pay_id", BINANCE_PAY_ID)
     usdt_addr = get_setting("binance_usdt_address", BINANCE_USDT_ADDRESS)
 
-    status_str = f"{CE('done')} ENABLED (ONLINE)" if enabled else f"{CE('close')} DISABLED (OFFLINE)"
-    toggle_text = "Disable Gateway" if enabled else "Enable Gateway"
+    status_str = "🟢 ENABLED (ONLINE)" if enabled else "🔴 DISABLED (OFFLINE)"
+    toggle_text = "🔴 Disable Gateway" if enabled else "🟢 Enable Gateway"
 
     text = (
-        f"{CE('binance')} <b>BINANCE GATEWAY CONFIGURATION</b>\n"
+        f"💳 <b>BINANCE GATEWAY CONFIGURATION</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('power')} <b>Current Status:</b> {status_str}\n"
-        f"{CE('link')} <b>Binance Pay ID:</b> <code>{pay_id}</code>\n"
-        f"{CE('wallet')} <b>USDT Address:</b> <code>{usdt_addr}</code>\n"
+        f"⚡ <b>Current Status:</b> {status_str}\n"
+        f"🆔 <b>Binance Pay ID:</b> <code>{pay_id}</code>\n"
+        f"🪙 <b>USDT Address:</b> <code>{usdt_addr}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<i>Select an option below to modify gateway parameters:</i>"
     )
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        cbtn(toggle_text, callback_data="adm_toggle_binance", style="danger" if enabled else "success", icon="power"),
-        cbtn("Set Pay ID", callback_data="adm_set_pay_id", style="primary", icon="arrow_right")
+        types.InlineKeyboardButton(toggle_text, callback_data="adm_toggle_binance"),
+        types.InlineKeyboardButton("✏️ Set Pay ID", callback_data="adm_set_pay_id")
     )
     markup.add(
-        cbtn("Set USDT Address", callback_data="adm_set_usdt_addr", style="primary", icon="wallet"),
-        cbtn("Back to Admin Console", callback_data="admin_console", style="primary", icon="arrow_right")
+        types.InlineKeyboardButton("🪙 Set USDT Address", callback_data="adm_set_usdt_addr"),
+        types.InlineKeyboardButton("⬅️ Back to Admin Console", callback_data="admin_console")
     )
 
     if message_id:
@@ -909,19 +833,19 @@ def show_binance_config_panel(chat_id, message_id=None):
 def trigger_deposit_binance(chat_id, user_id):
     enabled = get_setting("binance_enabled", "1") == "1"
     if not enabled:
-        return safe_send(chat_id, f"{CE('close')} <b>Binance deposits are currently paused by administration for maintenance. Please check back later!</b>")
+        return safe_send(chat_id, "❌ <b>Binance deposits are currently paused by administration for maintenance. Please check back later!</b>")
 
     pay_id = get_setting("binance_pay_id", BINANCE_PAY_ID)
     usdt_addr = get_setting("binance_usdt_address", BINANCE_USDT_ADDRESS)
 
     text = (
-        f"{CE('binance')} <b>BINANCE OFFICIAL PAYMENT GATEWAY</b>\n"
+        f"💳 <b>BINANCE OFFICIAL PAYMENT GATEWAY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Send USDT to our verified Binance credentials:\n\n"
-        f"{CE('link')} <b>Binance Pay ID:</b> <code>{pay_id}</code> (Tap to Copy)\n"
-        f"{CE('wallet')} <b>USDT Address (BEP20/TRC20):</b>\n<code>{usdt_addr}</code>\n\n"
+        f"🆔 <b>Binance Pay ID:</b> <code>{pay_id}</code> (Tap to Copy)\n"
+        f"🪙 <b>USDT Address (BEP20/TRC20):</b>\n<code>{usdt_addr}</code>\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('arrow_right')} <b>Next Step:</b> Send your <b>Payment Screenshot</b> and include the <b>Amount & TrxID</b> as caption!"
+        f"➡️ <b>Next Step:</b> Send your <b>Payment Screenshot</b> and include the <b>Amount & TrxID</b> as caption!"
     )
     safe_send(chat_id, text)
 
@@ -930,7 +854,7 @@ def handle_payment_screenshot_upload(message):
     user_id = message.from_user.id
     enabled = get_setting("binance_enabled", "1") == "1"
     if not enabled:
-        return safe_reply(message, f"{CE('close')} <b>Binance deposits are currently closed.</b>")
+        return safe_reply(message, "❌ <b>Binance deposits are currently closed.</b>")
 
     caption_text = message.caption or "No description provided"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -946,23 +870,23 @@ def handle_payment_screenshot_upload(message):
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        cbtn("Approve Deposit", callback_data=f"appdep_{dep_id}_{user_id}", style="success", icon="done"),
-        cbtn("Reject Deposit", callback_data=f"rejdep_{dep_id}_{user_id}", style="danger", icon="close")
+        types.InlineKeyboardButton("✅ Approve Deposit", callback_data=f"appdep_{dep_id}_{user_id}"),
+        types.InlineKeyboardButton("❌ Reject Deposit", callback_data=f"rejdep_{dep_id}_{user_id}")
     )
 
     admin_cap = (
-        f"{CE('binance')} <b>NEW BINANCE DEPOSIT SUBMITTED #{dep_id}</b>\n"
+        f"💳 <b>NEW BINANCE DEPOSIT SUBMITTED #{dep_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>User ID:</b> <code>{user_id}</code>\n"
-        f"{CE('sms')} <b>Submission Details:</b> <code>{html.escape(caption_text)}</code>\n"
-        f"{CE('date')} <b>Time:</b> <code>{now_str}</code>"
+        f"👤 <b>User ID:</b> <code>{user_id}</code>\n"
+        f"✉️ <b>Submission Details:</b> <code>{html.escape(caption_text)}</code>\n"
+        f"📅 <b>Time:</b> <code>{now_str}</code>"
     )
 
     try:
         bot.send_photo(OWNER_ID, message.photo[-1].file_id, caption=admin_cap, reply_markup=markup, parse_mode="HTML")
-        safe_reply(message, f"{CE('done')} <b>Deposit Proof Received!</b>\nOur administrators will verify and credit your balance shortly.")
+        safe_reply(message, "✅ <b>Deposit Proof Received!</b>\nOur administrators will verify and credit your balance shortly.")
     except Exception as e:
-        safe_reply(message, f"{CE('close')} Error sending proof to admin: {e}")
+        safe_reply(message, f"❌ Error sending proof to admin: {e}")
 
 # ─── REFERRAL PROGRAM ──────────────────────────────────────────────────────
 def show_referral_menu(chat_id, user_id):
@@ -980,18 +904,18 @@ def show_referral_menu(chat_id, user_id):
         conn.close()
 
     text = (
-        f"{CE('gift')} <b>AFFILIATE & REFERRAL PROGRAM</b>\n"
+        f"🎁 <b>AFFILIATE & REFERRAL PROGRAM</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Share your unique referral link to earn wallet balance bonuses!\n\n"
-        f"{CE('link')} <b>Your Referral Link:</b>\n<code>{ref_link}</code>\n\n"
+        f"🔗 <b>Your Referral Link:</b>\n<code>{ref_link}</code>\n\n"
         f"• <b>Join Bonus:</b> <code>${REFERRAL_JOIN_BONUS:.2f} USD</code> per verified referral\n"
         f"• <b>Deposit Commission:</b> <code>10%</code> of every deposit made\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('trader')} <b>Total Referrals:</b> <code>{ref_count} Members</code>\n"
-        f"{CE('money')} <b>Total Affiliate Profits:</b> <code>${earnings:.2f} USD</code>"
+        f"👥 <b>Total Referrals:</b> <code>{ref_count} Members</code>\n"
+        f"💰 <b>Total Affiliate Profits:</b> <code>${earnings:.2f} USD</code>"
     )
     markup = types.InlineKeyboardMarkup()
-    markup.add(cbtn("Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Deploy%20Telegram%20Bots%2024/7%20on%20Nebula%20Cloud!", style="success", icon="gift"))
+    markup.add(types.InlineKeyboardButton("🎁 Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Deploy%20Telegram%20Bots%2024/7%20on%20Nebula%20Cloud!"))
     safe_send(chat_id, text, reply_markup=markup)
 
 # ─── WALLET & PLANS INTERFACES ─────────────────────────────────────────────
@@ -1002,55 +926,53 @@ def show_wallet_menu(chat_id, user_id):
     exp = user[5] if user and user[5] else "No Active Expiry"
 
     text = (
-        f"{CE('wallet')} <b>YOUR CLOUD WALLET</b>\n"
+        f"💳 <b>YOUR CLOUD WALLET</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('money')} <b>Available Balance:</b> <code>${bal:.2f} USD</code>\n"
-        f"{CE('diamond')} <b>Active Package:</b> <code>{pname}</code>\n"
-        f"{CE('date')} <b>Validity:</b> <code>{exp}</code>\n"
+        f"💰 <b>Available Balance:</b> <code>${bal:.2f} USD</code>\n"
+        f"💎 <b>Active Package:</b> <code>{pname}</code>\n"
+        f"📅 <b>Validity:</b> <code>{exp}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<i>Add funds via Binance to purchase or upgrade your hosting subscriptions.</i>"
     )
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        cbtn("Deposit Binance", callback_data="deposit_binance", style="success", icon="binance"),
-        cbtn("Browse Plans", callback_data="view_plans", style="primary", icon="diamond")
+        types.InlineKeyboardButton("🟡 Deposit Binance", callback_data="deposit_binance"),
+        types.InlineKeyboardButton("💎 Browse Plans", callback_data="view_plans")
     )
     safe_send(chat_id, text, reply_markup=markup)
 
 def show_plans_menu(chat_id, user_id):
     plans = get_all_plans()
-    text = f"{CE('diamond')} <b>CLOUD SUBSCRIPTION TIERS</b> {CE('fire')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text = "💎 <b>CLOUD SUBSCRIPTION TIERS</b> ⚡\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for pid, pname, mbots, price, days, desc in plans:
         text += (
             f"• <b>{pname}:</b> <code>${price:.2f} USD</code>\n"
-            f"  {CE('power')} Limit: <code>{mbots} Bots</code> | {CE('date')} Duration: <code>{days} Days</code>\n"
+            f"  ⚡ Limit: <code>{mbots} Bots</code> | 📅 Duration: <code>{days} Days</code>\n"
             f"  <i>{desc}</i>\n\n"
         )
-        markup.add(cbtn(f"Purchase {pname} (${price:.0f})", callback_data=f"buyplan_{pid}", style="primary", icon="diamond"))
+        markup.add(types.InlineKeyboardButton(f"🛒 Purchase {pname} (${price:.0f})", callback_data=f"buyplan_{pid}"))
 
-    markup.add(cbtn("Deposit Balance", callback_data="deposit_binance", style="success", icon="binance"))
+    markup.add(types.InlineKeyboardButton("💳 Deposit Balance (Binance)", callback_data="deposit_binance"))
     safe_send(chat_id, text, reply_markup=markup)
 
 # ─── MY BOTS CONTROLLER ────────────────────────────────────────────────────
 def show_user_bots(chat_id, user_id):
     flist = user_files.get(user_id, [])
     if not flist:
-        return safe_send(chat_id, f"{CE('notice')} <b>You have no hosted instances deployed.</b>")
+        return safe_send(chat_id, "🔔 <b>You have no hosted instances deployed.</b>")
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for fn, ft, st in sorted(flist):
         if st == "pending":
-            markup.add(cbtn(f"[PENDING APPROVAL] {fn}", callback_data=f"ctl_{user_id}_{fn}", style="primary", icon="loading"))
+            markup.add(types.InlineKeyboardButton(f"⏳ [PENDING APPROVAL] {fn}", callback_data=f"ctl_{user_id}_{fn}"))
         else:
             running = (st == "approved" and is_bot_running(user_id, fn))
-            st_text = "ONLINE" if running else "STOPPED"
-            icon_k = "done" if running else "close"
-            st_style = "success" if running else "danger"
-            markup.add(cbtn(f"[{st_text}] {fn}", callback_data=f"ctl_{user_id}_{fn}", style=st_style, icon=icon_k))
+            st_text = "🟢 ONLINE" if running else "🔴 STOPPED"
+            markup.add(types.InlineKeyboardButton(f"[{st_text}] {fn}", callback_data=f"ctl_{user_id}_{fn}"))
 
-    safe_send(chat_id, f"{CE('trader')} <b>DEPLOYED INSTANCES CONTROLLER:</b>", reply_markup=markup)
+    safe_send(chat_id, "🤖 <b>DEPLOYED INSTANCES CONTROLLER:</b>", reply_markup=markup)
 
 def show_bot_controls_card(chat_id, owner_id, fname, message_id=None):
     ftype, status = None, None
@@ -1060,50 +982,50 @@ def show_bot_controls_card(chat_id, owner_id, fname, message_id=None):
             break
 
     if not ftype:
-        return safe_send(chat_id, f"{CE('close')} <b>Instance record missing.</b>")
+        return safe_send(chat_id, "❌ <b>Instance record missing.</b>")
 
     if status == "pending":
-        st_text = f"{CE('loading')} PENDING ADMIN APPROVAL"
+        st_text = "⏳ PENDING ADMIN APPROVAL"
     elif is_bot_running(owner_id, fname):
-        st_text = f"{CE('done')} ONLINE & RUNNING"
+        st_text = "🟢 ONLINE & RUNNING"
     else:
-        st_text = f"{CE('close')} STOPPED"
+        st_text = "🔴 STOPPED"
 
     card_text = (
-        f"{CE('diamond')} <b>CONTAINER CONTROLLER #{fname}</b>\n"
+        f"🤖 <b>CONTAINER CONTROLLER #{fname}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{CE('link')} <b>Runtime:</b> <code>{ftype.upper()}</code>\n"
-        f"{CE('trader')} <b>Owner ID:</b> <code>{owner_id}</code>\n"
-        f"{CE('speed')} <b>Status:</b> {st_text}"
+        f"⚙️ <b>Runtime:</b> <code>{ftype.upper()}</code>\n"
+        f"👤 <b>Owner ID:</b> <code>{owner_id}</code>\n"
+        f"⚡ <b>Status:</b> {st_text}"
     )
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     if status == "approved":
         if is_bot_running(owner_id, fname):
             markup.add(
-                cbtn("Stop Process", callback_data=f"bact_stop_{owner_id}_{fname}", style="danger", icon="stop"),
-                cbtn("Restart Process", callback_data=f"bact_restart_{owner_id}_{fname}", style="primary", icon="restart")
+                types.InlineKeyboardButton("⏹️ Stop Process", callback_data=f"bact_stop_{owner_id}_{fname}"),
+                types.InlineKeyboardButton("🔄 Restart Process", callback_data=f"bact_restart_{owner_id}_{fname}")
             )
         else:
             markup.add(
-                cbtn("Start Process", callback_data=f"bact_start_{owner_id}_{fname}", style="success", icon="play"),
-                cbtn("Delete Container", callback_data=f"bact_del_{owner_id}_{fname}", style="danger", icon="delete")
+                types.InlineKeyboardButton("▶️ Start Process", callback_data=f"bact_start_{owner_id}_{fname}"),
+                types.InlineKeyboardButton("🗑️ Delete Container", callback_data=f"bact_del_{owner_id}_{fname}")
             )
     else:
-        markup.add(cbtn("Delete Container", callback_data=f"bact_del_{owner_id}_{fname}", style="danger", icon="delete"))
+        markup.add(types.InlineKeyboardButton("🗑️ Delete Container", callback_data=f"bact_del_{owner_id}_{fname}"))
 
     markup.add(
-        cbtn("Terminal Logs", callback_data=f"bact_logs_{owner_id}_{fname}", style="primary", icon="logs"),
-        cbtn("Download Backup (.zip)", callback_data=f"bact_dl_{owner_id}_{fname}", style="success", icon="download")
+        types.InlineKeyboardButton("📜 Terminal Logs", callback_data=f"bact_logs_{owner_id}_{fname}"),
+        types.InlineKeyboardButton("📥 Download Backup (.zip)", callback_data=f"bact_dl_{owner_id}_{fname}")
     )
-    markup.add(cbtn("Return to Bots List", callback_data="back_my_bots", style="primary", icon="arrow_right"))
+    markup.add(types.InlineKeyboardButton("⬅️ Return to Bots List", callback_data="back_my_bots"))
 
     if message_id:
         safe_edit(chat_id, message_id, card_text, reply_markup=markup)
     else:
         safe_send(chat_id, card_text, reply_markup=markup)
 
-# ─── CALLBACK QUERY ENGINE ─────────────────────────────────────────────────
+# ─── CALLBACK QUERY ENGINE (100% RELIABLE & CONNECTED) ─────────────────────
 @bot.callback_query_handler(func=lambda call: True)
 def handle_all_callbacks(call):
     global bot_locked
@@ -1128,7 +1050,7 @@ def handle_all_callbacks(call):
 
     if data == "cancel_action":
         user_staged_uploads.pop(user_id, None)
-        safe_edit(chat_id, call.message.message_id, f"{CE('close')} <b>Operation Cancelled.</b>")
+        safe_edit(chat_id, call.message.message_id, "❌ <b>Operation Cancelled.</b>")
         bot.answer_callback_query(call.id)
         return
 
@@ -1137,7 +1059,7 @@ def handle_all_callbacks(call):
         user_staged_uploads.pop(user_id, None)
         fpath = os.path.join(get_user_folder(user_id), fname)
         forward_bot_to_admin(user_id, fname, fpath)
-        safe_edit(chat_id, call.message.message_id, f"{CE('done')} <b>File dispatched to Admin for launch approval!</b>")
+        safe_edit(chat_id, call.message.message_id, "✅ <b>File dispatched to Admin for launch approval!</b>")
         bot.answer_callback_query(call.id)
         return
 
@@ -1157,8 +1079,8 @@ def handle_all_callbacks(call):
         threading.Thread(target=run_script, args=(fpath, target_uid, get_user_folder(target_uid), fname, None)).start()
 
         bot.answer_callback_query(call.id, "Instance Approved!")
-        safe_edit(chat_id, call.message.message_id, f"{CE('done')} <b>Worker <code>{fname}</code> Approved and Running!</b>")
-        safe_send(target_uid, f"{CE('done')} <b>Your bot <code>{fname}</code> has been approved by admin and is now ONLINE!</b>")
+        safe_edit(chat_id, call.message.message_id, f"✅ <b>Worker <code>{fname}</code> Approved and Running!</b>")
+        safe_send(target_uid, f"✅ <b>Your bot <code>{fname}</code> has been approved by admin and is now ONLINE!</b>")
         return
 
     if data.startswith("rjct_"):
@@ -1167,23 +1089,23 @@ def handle_all_callbacks(call):
         info = pending_approvals.pop(fid, None)
         if info:
             execute_permanent_bot_delete(info["user_id"], info["file_name"])
-            safe_send(info["user_id"], f"{CE('close')} <b>Your deployment request for <code>{info['file_name']}</code> was rejected and removed.</b>")
+            safe_send(info["user_id"], f"❌ <b>Your deployment request for <code>{info['file_name']}</code> was rejected and removed.</b>")
         bot.answer_callback_query(call.id, "Rejected.")
-        safe_edit(chat_id, call.message.message_id, f"{CE('close')} <b>Container Rejected & Purged.</b>")
+        safe_edit(chat_id, call.message.message_id, "❌ <b>Container Rejected & Purged.</b>")
         return
 
     if data.startswith("appdep_"):
-        if user_id != OWNER_ID and user_id not in admin_ids: return
+        if user_id != OWNER_ID: return
         _, dep_id, target_uid = data.split("_")
         dep_id, target_uid = int(dep_id), int(target_uid)
 
-        msg = safe_send(chat_id, f"{CE('money')} <b>Enter exact USD amount to credit for Deposit #{dep_id} (e.g. 25.0):</b>")
+        msg = safe_send(chat_id, f"💰 <b>Enter exact USD amount to credit for Deposit #{dep_id} (e.g. 25.0):</b>")
         safe_next_step(msg, lambda m: process_deposit_approval_amount(m, dep_id, target_uid))
         bot.answer_callback_query(call.id)
         return
 
     if data.startswith("rejdep_"):
-        if user_id != OWNER_ID and user_id not in admin_ids: return
+        if user_id != OWNER_ID: return
         _, dep_id, target_uid = data.split("_")
         with DB_LOCK:
             conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
@@ -1192,7 +1114,7 @@ def handle_all_callbacks(call):
             conn.commit()
             conn.close()
         bot.answer_callback_query(call.id, "Deposit Rejected.")
-        safe_send(int(target_uid), f"{CE('close')} <b>Your deposit submission #{dep_id} was rejected by billing admin.</b>")
+        safe_send(int(target_uid), f"❌ <b>Your deposit submission #{dep_id} was rejected by billing admin.</b>")
         return
 
     if data.startswith("buyplan_"):
@@ -1225,7 +1147,7 @@ def handle_all_callbacks(call):
             conn.close()
 
         bot.answer_callback_query(call.id, "Subscription Activated!")
-        safe_send(chat_id, f"{CE('done')} <b>Plan <code>{pname}</code> Activated!</b>\nValid for <code>{days} Days</code>. Slot quota increased to <code>{mbots} Bots</code>.")
+        safe_send(chat_id, f"✅ <b>Plan <code>{pname}</code> Activated!</b>\nValid for <code>{days} Days</code>. Slot quota increased to <code>{mbots} Bots</code>.")
         return
 
     if data == "back_my_bots":
@@ -1286,7 +1208,7 @@ def handle_all_callbacks(call):
             if os.path.exists(log_path):
                 with open(log_path, "r", errors="ignore") as f:
                     tail = "".join(f.readlines()[-25:]) or "Terminal buffer empty."
-                safe_send(chat_id, f"{CE('logs')} <b>TERMINAL OUTPUT (<code>{fname}</code>):</b>\n<pre>{html.escape(tail)}</pre>")
+                safe_send(chat_id, f"📜 <b>TERMINAL OUTPUT (<code>{fname}</code>):</b>\n<pre>{html.escape(tail)}</pre>")
             else:
                 bot.answer_callback_query(call.id, "No logs recorded.", show_alert=True)
 
@@ -1296,7 +1218,7 @@ def handle_all_callbacks(call):
             shutil.make_archive(zip_path, "zip", folder)
             full_zip = f"{zip_path}.zip"
             with open(full_zip, "rb") as f:
-                bot.send_document(chat_id, f, caption=f"{CE('done')} <b>Complete Backup for {fname}</b>", parse_mode="HTML")
+                bot.send_document(chat_id, f, caption=f"✅ <b>Complete Backup for {fname}</b>", parse_mode="HTML")
             if os.path.exists(full_zip): os.remove(full_zip)
             bot.answer_callback_query(call.id, "Backup Generated!")
 
@@ -1304,11 +1226,11 @@ def handle_all_callbacks(call):
             is_adm = (user_id in admin_ids or user_id == OWNER_ID)
             execute_permanent_bot_delete(owner_id, fname, executed_by_admin=is_adm)
             bot.answer_callback_query(call.id, "Bot completely deleted!")
-            safe_edit(chat_id, call.message.message_id, f"{CE('delete')} <b>Bot container <code>{fname}</code> has been completely terminated & purged.</b>")
+            safe_edit(chat_id, call.message.message_id, f"🗑️ <b>Bot container <code>{fname}</code> has been completely terminated & purged.</b>")
 
         return
 
-    # --- Admin Operations (All 100% Live) ---
+    # --- Admin Operations (Full Connection) ---
     if data == "adm_binance_cfg" and (user_id in admin_ids or user_id == OWNER_ID):
         show_binance_config_panel(chat_id, call.message.message_id)
         bot.answer_callback_query(call.id)
@@ -1323,38 +1245,38 @@ def handle_all_callbacks(call):
         return
 
     if data == "adm_set_pay_id" and (user_id in admin_ids or user_id == OWNER_ID):
-        msg = safe_send(chat_id, f"{CE('binance')} <b>Enter new Binance Pay ID:</b>")
+        msg = safe_send(chat_id, "💳 <b>Enter new Binance Pay ID:</b>")
         safe_next_step(msg, process_set_binance_pay_id)
         bot.answer_callback_query(call.id)
         return
 
     if data == "adm_set_usdt_addr" and (user_id in admin_ids or user_id == OWNER_ID):
-        msg = safe_send(chat_id, f"{CE('wallet')} <b>Enter new Binance USDT Deposit Address:</b>")
+        msg = safe_send(chat_id, "🪙 <b>Enter new Binance USDT Deposit Address:</b>")
         safe_next_step(msg, process_set_binance_usdt_address)
         bot.answer_callback_query(call.id)
         return
 
     if data == "adm_change_db" and (user_id in admin_ids or user_id == OWNER_ID):
-        msg = safe_send(chat_id, f"{CE('world')} <b>DATABASE SWITCHER:</b>\nEnter database file name (e.g. <code>custom_data.db</code>):\n<i>The system will link to this DB immediately and reload all data.</i>")
+        msg = safe_send(chat_id, "🗄️ <b>DATABASE SWITCHER:</b>\nEnter database file name (e.g. <code>custom_data.db</code>):\n<i>The system will link to this DB immediately and reload all data.</i>")
         safe_next_step(msg, process_switch_database)
         bot.answer_callback_query(call.id)
         return
 
     if data == "adm_bots_sms" and (user_id in admin_ids or user_id == OWNER_ID):
-        msg = safe_send(chat_id, f"{CE('sms')} <b>BROADCAST TO HOSTED BOT OWNERS:</b>\nSend message text. It will be delivered only to users with at least 1 hosted bot:\n<i>Send /cancel to abort.</i>")
+        msg = safe_send(chat_id, "📩 <b>BROADCAST TO HOSTED BOT OWNERS:</b>\nSend message text. It will be delivered only to users with at least 1 hosted bot:\n<i>Send /cancel to abort.</i>")
         safe_next_step(msg, process_all_bot_owners_sms)
         bot.answer_callback_query(call.id)
         return
 
     if data == "adm_plans_mgr" and (user_id in admin_ids or user_id == OWNER_ID):
         plans = get_all_plans()
-        text = f"{CE('diamond')} <b>PLAN MANAGER CONSOLE</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text = "💎 <b>PLAN MANAGER CONSOLE</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         markup = types.InlineKeyboardMarkup(row_width=1)
         for pid, pname, mbots, price, days, _ in plans:
             text += f"• <code>{pid}</code>: <b>{pname}</b> | ${price:.0f} | {days}d | {mbots} bots\n"
-            markup.add(cbtn(f"Delete: {pname}", callback_data=f"delplan_{pid}", style="danger", icon="delete"))
-        markup.add(cbtn("Add New Plan", callback_data="add_plan_init", style="success", icon="up"))
-        markup.add(cbtn("Back to Admin Console", callback_data="admin_console", style="primary", icon="arrow_right"))
+            markup.add(types.InlineKeyboardButton(f"🗑️ Delete: {pname}", callback_data=f"delplan_{pid}"))
+        markup.add(types.InlineKeyboardButton("➕ Add New Plan", callback_data="add_plan_init"))
+        markup.add(types.InlineKeyboardButton("⬅️ Back to Admin Console", callback_data="admin_console"))
         safe_edit(chat_id, call.message.message_id, text, reply_markup=markup)
         bot.answer_callback_query(call.id)
         return
@@ -1363,11 +1285,11 @@ def handle_all_callbacks(call):
         pid = data.replace("delplan_", "")
         delete_plan_db(pid)
         bot.answer_callback_query(call.id, "Plan Deleted!")
-        safe_send(chat_id, f"{CE('done')} <b>Plan <code>{pid}</code> removed from database.</b>")
+        safe_send(chat_id, f"✅ <b>Plan <code>{pid}</code> removed from database.</b>")
         return
 
     if data == "add_plan_init":
-        msg = safe_send(chat_id, f"{CE('sms')} <b>Send new plan details in format:</b>\n<code>plan_id | Plan Name | Max Bots | Price | Days | Description</code>\n\n<i>Example:</i>\n<code>mega | Mega Host | 15 | 40 | 30 | 15 Bot Slots with Dedicated Resources</code>")
+        msg = safe_send(chat_id, "📝 <b>Send new plan details in format:</b>\n<code>plan_id | Plan Name | Max Bots | Price | Days | Description</code>\n\n<i>Example:</i>\n<code>mega | Mega Host | 15 | 40 | 30 | 15 Bot Slots with Dedicated Resources</code>")
         safe_next_step(msg, process_add_plan_step)
         bot.answer_callback_query(call.id)
         return
@@ -1378,11 +1300,11 @@ def handle_all_callbacks(call):
         for uid, files in user_files.items():
             for fn, ft, st in files:
                 running = (st == "approved" and is_bot_running(uid, fn))
-                st_icon = "done" if running else "close"
-                markup.add(cbtn(f"{fn} ({uid}) [{'ON' if running else 'OFF'}]", callback_data=f"ctl_{uid}_{fn}", style="primary", icon=st_icon))
+                st_icon = "🟢" if running else "🔴"
+                markup.add(types.InlineKeyboardButton(f"{st_icon} {fn} ({uid})", callback_data=f"ctl_{uid}_{fn}"))
                 count += 1
-        markup.add(cbtn("Back to Admin Console", callback_data="admin_console", style="primary", icon="arrow_right"))
-        safe_send(chat_id, f"{CE('trader')} <b>GLOBAL INSTANCES MONITOR ({count} Bots):</b>", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("⬅️ Back to Admin Console", callback_data="admin_console"))
+        safe_send(chat_id, f"🤖 <b>GLOBAL INSTANCES MONITOR ({count} Bots):</b>", reply_markup=markup)
         bot.answer_callback_query(call.id)
         return
 
@@ -1391,21 +1313,21 @@ def handle_all_callbacks(call):
         bot.answer_callback_query(call.id)
         pending_items = [(uid, fn) for uid, files in user_files.items() for fn, ft, st in files if st == "pending"]
         if not pending_items:
-            safe_send(chat_id, f"{CE('done')} <b>No files awaiting approval.</b>")
+            safe_send(chat_id, "✅ <b>No files awaiting approval.</b>")
             return
         for p_uid, p_fn in pending_items:
             markup = types.InlineKeyboardMarkup(row_width=2)
             f_id = f"{p_uid}_{p_fn}"
             pending_approvals[f_id] = {"user_id": p_uid, "file_name": p_fn, "file_path": os.path.join(get_user_folder(p_uid), p_fn), "file_type": "py"}
             markup.add(
-                cbtn("Approve & Run", callback_data=f"apprv_{f_id}", style="success", icon="play"),
-                cbtn("Reject & Purge", callback_data=f"rjct_{f_id}", style="danger", icon="close")
+                types.InlineKeyboardButton("▶️ Approve & Run", callback_data=f"apprv_{f_id}"),
+                types.InlineKeyboardButton("🗑️ Reject & Purge", callback_data=f"rjct_{f_id}")
             )
-            safe_send(chat_id, f"{CE('notice')} <b>Pending File:</b> <code>{p_fn}</code>\n👤 <b>Owner:</b> <code>{p_uid}</code>", reply_markup=markup)
+            safe_send(chat_id, f"🔔 <b>Pending File:</b> <code>{p_fn}</code>\n👤 <b>Owner:</b> <code>{p_uid}</code>", reply_markup=markup)
         return
 
     if data == "adm_scan_user":
-        msg = safe_send(chat_id, f"{CE('search')} <b>Enter User ID to inspect profile & adjust balance:</b>")
+        msg = safe_send(chat_id, "🔍 <b>Enter User ID to inspect profile & adjust balance:</b>")
         safe_next_step(msg, process_scan_user_input)
         bot.answer_callback_query(call.id)
         return
@@ -1414,7 +1336,7 @@ def handle_all_callbacks(call):
         parts = data.split("_")
         mode, target_uid = parts[2], int(parts[3])
         sign = "+" if mode == "add" else "-"
-        msg = safe_send(chat_id, f"{CE('money')} <b>Enter amount to {mode} for User <code>{target_uid}</code>:</b>\n<i>Example: send 10.0 to {sign}10.0 USD</i>")
+        msg = safe_send(chat_id, f"💰 <b>Enter amount to {mode} for User <code>{target_uid}</code>:</b>\n<i>Example: send 10.0 to {sign}10.0 USD</i>")
         safe_next_step(msg, lambda m: process_balance_adjustment_step(m, target_uid, mode))
         bot.answer_callback_query(call.id)
         return
@@ -1433,11 +1355,11 @@ def handle_all_callbacks(call):
             conn.close()
         action_text = "Unbanned" if new_ban == 0 else "Banned"
         bot.answer_callback_query(call.id, f"User {action_text}!")
-        safe_send(chat_id, f"{CE('done')} <b>User <code>{target_uid}</code> is now {action_text}.</b>")
+        safe_send(chat_id, f"✅ <b>User <code>{target_uid}</code> is now {action_text}.</b>")
         return
 
     if data == "adm_broadcast":
-        msg = safe_send(chat_id, f"{CE('notice')} <b>Send announcement text to broadcast to ALL network users:</b>\n<i>Send /cancel to abort.</i>")
+        msg = safe_send(chat_id, "📢 <b>Send announcement text to broadcast to ALL network users:</b>\n<i>Send /cancel to abort.</i>")
         safe_next_step(msg, process_broadcast_transmission)
         bot.answer_callback_query(call.id)
         return
@@ -1450,7 +1372,7 @@ def handle_all_callbacks(call):
                     fpath = os.path.join(get_user_folder(uid), fn)
                     threading.Thread(target=run_script, args=(fpath, uid, get_user_folder(uid), fn, None)).start()
                     count += 1
-        safe_send(chat_id, f"{CE('done')} <b>Rebooted {count} approved worker instances.</b>")
+        safe_send(chat_id, f"✅ <b>Rebooted {count} approved worker instances.</b>")
         bot.answer_callback_query(call.id)
         return
 
@@ -1459,18 +1381,18 @@ def handle_all_callbacks(call):
         for skey in list(bot_scripts.keys()):
             kill_process_tree(bot_scripts[skey])
             bot_scripts.pop(skey, None)
-        safe_send(chat_id, f"{CE('stop')} <b>Terminated {stopped} active running processes.</b>")
+        safe_send(chat_id, f"⏹️ <b>Terminated {stopped} active running processes.</b>")
         bot.answer_callback_query(call.id)
         return
 
     if data == "adm_lock_system":
         bot_locked = not bot_locked
-        safe_send(chat_id, f"{CE('power')} <b>Emergency Lockdown State:</b> <code>{bot_locked}</code>")
+        safe_send(chat_id, f"⚡ <b>Emergency Lockdown State:</b> <code>{bot_locked}</code>")
         bot.answer_callback_query(call.id, "Lock State Toggled!")
         return
 
     if data == "admin_console":
-        safe_send(chat_id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+        safe_send(chat_id, "👑 <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
         bot.answer_callback_query(call.id)
         return
 
@@ -1485,17 +1407,17 @@ def process_set_binance_pay_id(message):
     new_id = message.text.strip()
     if new_id:
         set_setting("binance_pay_id", new_id)
-        safe_send(message.chat.id, f"{CE('done')} <b>Binance Pay ID updated to:</b> <code>{new_id}</code>")
+        safe_send(message.chat.id, f"✅ <b>Binance Pay ID updated to:</b> <code>{new_id}</code>")
     else:
-        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Pay ID provided.</b>")
+        safe_send(message.chat.id, "❌ <b>Invalid Pay ID provided.</b>")
 
 def process_set_binance_usdt_address(message):
     new_addr = message.text.strip()
     if new_addr:
         set_setting("binance_usdt_address", new_addr)
-        safe_send(message.chat.id, f"{CE('done')} <b>Binance USDT Address updated to:</b>\n<code>{new_addr}</code>")
+        safe_send(message.chat.id, f"✅ <b>Binance USDT Address updated to:</b>\n<code>{new_addr}</code>")
     else:
-        safe_send(message.chat.id, f"{CE('close')} <b>Invalid USDT address provided.</b>")
+        safe_send(message.chat.id, "❌ <b>Invalid USDT address provided.</b>")
 
 def process_switch_database(message):
     global DATABASE_PATH
@@ -1508,30 +1430,30 @@ def process_switch_database(message):
         DATABASE_PATH = new_path
         init_db()
         load_data()
-        safe_send(message.chat.id, f"{CE('done')} <b>Database Switched Successfully!</b>\nActive DB: <code>{db_name}</code>\nTables initialized & cached data reloaded.")
+        safe_send(message.chat.id, f"✅ <b>Database Switched Successfully!</b>\nActive DB: <code>{db_name}</code>\nTables initialized & cached data reloaded.")
     except Exception as e:
-        safe_send(message.chat.id, f"{CE('close')} <b>Database Connection Error:</b> {e}")
+        safe_send(message.chat.id, f"❌ <b>Database Connection Error:</b> {e}")
 
 def process_all_bot_owners_sms(message):
     text = message.text or ""
     if text == "/cancel":
-        return safe_send(message.chat.id, f"{CE('close')} <b>Bot Owners SMS Cancelled.</b>")
+        return safe_send(message.chat.id, "❌ <b>Bot Owners SMS Cancelled.</b>")
 
     target_user_ids = [uid for uid, files in user_files.items() if len(files) > 0]
     if not target_user_ids:
-        return safe_send(message.chat.id, f"{CE('notice')} <b>No active bot owners found to message.</b>")
+        return safe_send(message.chat.id, "🔔 <b>No active bot owners found to message.</b>")
 
-    status_m = safe_send(message.chat.id, f"{CE('loading')} <i>Delivering SMS to {len(target_user_ids)} bot owners...</i>")
+    status_m = safe_send(message.chat.id, f"⏳ <i>Delivering SMS to {len(target_user_ids)} bot owners...</i>")
     sent, failed = 0, 0
     for uid in target_user_ids:
         try:
-            safe_send(uid, f"{CE('sms')} <b>IMPORTANT HOSTING NOTICE:</b>\n\n{text}")
+            safe_send(uid, f"📩 <b>IMPORTANT HOSTING NOTICE:</b>\n\n{text}")
             sent += 1
             time.sleep(0.04)
         except Exception:
             failed += 1
 
-    safe_edit(message.chat.id, status_m.message_id, f"{CE('done')} <b>Hosted Bot SMS Finished!</b>\nDelivered: <code>{sent}</code> | Failed: <code>{failed}</code>.")
+    safe_edit(message.chat.id, status_m.message_id, f"✅ <b>Hosted Bot SMS Finished!</b>\nDelivered: <code>{sent}</code> | Failed: <code>{failed}</code>.")
 
 def process_deposit_approval_amount(message, dep_id, target_uid):
     try:
@@ -1556,86 +1478,86 @@ def process_deposit_approval_amount(message, dep_id, target_uid):
                 c.execute("UPDATE users SET referral_earnings = referral_earnings + ? WHERE user_id = ?", (comm, ref_row[0]))
                 conn.commit()
                 conn.close()
-            safe_send(ref_row[0], f"{CE('gift')} <b>Referral Commission Earned!</b>\nYour referral deposited <code>${amount:.2f}</code>. You received <code>${comm:.2f} USD</code> commission!")
+            safe_send(ref_row[0], f"🎁 <b>Referral Commission Earned!</b>\nYour referral deposited <code>${amount:.2f}</code>. You received <code>${comm:.2f} USD</code> commission!")
 
-        safe_send(message.chat.id, f"{CE('done')} <b>Deposit #{dep_id} Approved! User <code>{target_uid}</code> credited with <code>${amount:.2f}</code> (New Balance: <code>${new_bal:.2f}</code>).</b>")
-        safe_send(target_uid, f"{CE('done')} <b>Deposit Confirmed!</b> <code>${amount:.2f} USD</code> has been credited to your Cloud Wallet. Available: <code>${new_bal:.2f}</code>.")
+        safe_send(message.chat.id, f"✅ <b>Deposit #{dep_id} Approved! User <code>{target_uid}</code> credited with <code>${amount:.2f}</code> (New Balance: <code>${new_bal:.2f}</code>).</b>")
+        safe_send(target_uid, f"✅ <b>Deposit Confirmed!</b> <code>${amount:.2f} USD</code> has been credited to your Cloud Wallet. Available: <code>${new_bal:.2f}</code>.")
     except Exception as e:
-        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Amount:</b> {e}")
+        safe_send(message.chat.id, f"❌ <b>Invalid Amount:</b> {e}")
 
 def process_add_plan_step(message):
     try:
         parts = [p.strip() for p in message.text.split("|")]
         pid, name, max_bots, price, days, desc = parts[0], parts[1], int(parts[2]), float(parts[3]), int(parts[4]), parts[5]
         save_or_update_plan(pid, name, max_bots, price, days, desc)
-        safe_send(message.chat.id, f"{CE('done')} <b>Plan <code>{name}</code> ({pid}) successfully created!</b>")
+        safe_send(message.chat.id, f"✅ <b>Plan <code>{name}</code> ({pid}) successfully created!</b>")
     except Exception as e:
-        safe_send(message.chat.id, f"{CE('close')} <b>Invalid format:</b> {e}")
+        safe_send(message.chat.id, f"❌ <b>Invalid format:</b> {e}")
 
 def process_scan_user_input(message):
     try:
         uid = int(message.text.strip())
         u = get_user_data(uid)
         if not u:
-            return safe_send(message.chat.id, f"{CE('close')} <b>User not found in database.</b>")
+            return safe_send(message.chat.id, "❌ <b>User not found in database.</b>")
 
         status_str = "BANNED" if u[6] == 1 else "ACTIVE"
         text = (
-            f"{CE('trader')} <b>USER PROFILE DOSSIER:</b> <code>{uid}</code>\n"
+            f"👤 <b>USER PROFILE DOSSIER:</b> <code>{uid}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{CE('telegram')} <b>Username:</b> @{u[1] or 'N/A'}\n"
-            f"{CE('wallet')} <b>Balance:</b> <code>${u[3]:.2f} USD</code>\n"
-            f"{CE('diamond')} <b>Plan:</b> <code>{u[4] or 'Free Tier'}</code>\n"
-            f"{CE('date')} <b>Expiry:</b> <code>{u[5] or 'N/A'}</code>\n"
-            f"{CE('shield')} <b>Status:</b> <code>{status_str}</code>\n"
-            f"{CE('power')} <b>Hosted Bots:</b> <code>{len(user_files.get(uid, []))}</code>\n"
+            f"✈️ <b>Username:</b> @{u[1] or 'N/A'}\n"
+            f"💰 <b>Balance:</b> <code>${u[3]:.2f} USD</code>\n"
+            f"💎 <b>Plan:</b> <code>{u[4] or 'Free Tier'}</code>\n"
+            f"📅 <b>Expiry:</b> <code>{u[5] or 'N/A'}</code>\n"
+            f"🛡️ <b>Status:</b> <code>{status_str}</code>\n"
+            f"⚡ <b>Hosted Bots:</b> <code>{len(user_files.get(uid, []))}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<i>Choose an action below to manage user:</i>"
         )
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
-            cbtn("Add Balance (+)", callback_data=f"adm_bal_add_{uid}", style="success", icon="money"),
-            cbtn("Deduct Balance (-)", callback_data=f"adm_bal_sub_{uid}", style="danger", icon="money")
+            types.InlineKeyboardButton("➕ Add Balance", callback_data=f"adm_bal_add_{uid}"),
+            types.InlineKeyboardButton("➖ Deduct Balance", callback_data=f"adm_bal_sub_{uid}")
         )
-        ban_lbl = "Unban User" if u[6] == 1 else "Ban User"
+        ban_lbl = "✅ Unban User" if u[6] == 1 else "🚫 Ban User"
         markup.add(
-            cbtn(ban_lbl, callback_data=f"adm_ban_toggle_{uid}", style="danger", icon="delete"),
-            cbtn("Back to Admin Console", callback_data="admin_console", style="primary", icon="arrow_right")
+            types.InlineKeyboardButton(ban_lbl, callback_data=f"adm_ban_toggle_{uid}"),
+            types.InlineKeyboardButton("⬅️ Back to Admin Console", callback_data="admin_console")
         )
         safe_send(message.chat.id, text, reply_markup=markup)
     except Exception:
-        safe_send(message.chat.id, f"{CE('close')} <b>Please provide a numerical User ID.</b>")
+        safe_send(message.chat.id, "❌ <b>Please provide a numerical User ID.</b>")
 
 def process_balance_adjustment_step(message, target_uid, mode):
     try:
         amount = float(message.text.strip())
         delta = amount if mode == "add" else -amount
         new_bal = update_user_balance(target_uid, delta)
-        safe_send(message.chat.id, f"{CE('done')} <b>Balance Updated! User <code>{target_uid}</code> now has <code>${new_bal:.2f} USD</code>.</b>")
-        safe_send(target_uid, f"{CE('notice')} <b>Wallet Adjustment Notice:</b>\nAn administrator modified your balance by <code>{delta:+.2f} USD</code>. Current Balance: <code>${new_bal:.2f}</code>.")
+        safe_send(message.chat.id, f"✅ <b>Balance Updated! User <code>{target_uid}</code> now has <code>${new_bal:.2f} USD</code>.</b>")
+        safe_send(target_uid, f"🔔 <b>Wallet Adjustment Notice:</b>\nAn administrator modified your balance by <code>{delta:+.2f} USD</code>. Current Balance: <code>${new_bal:.2f}</code>.")
     except Exception as e:
-        safe_send(message.chat.id, f"{CE('close')} <b>Error:</b> {e}")
+        safe_send(message.chat.id, f"❌ <b>Error:</b> {e}")
 
 def process_broadcast_transmission(message):
     text = message.text or ""
-    if text == "/cancel": return safe_send(message.chat.id, f"{CE('close')} <b>Broadcast Cancelled.</b>")
-    status_m = safe_send(message.chat.id, f"{CE('loading')} <i>Transmitting announcement to network...</i>")
+    if text == "/cancel": return safe_send(message.chat.id, "❌ <b>Broadcast Cancelled.</b>")
+    status_m = safe_send(message.chat.id, "⏳ <i>Transmitting announcement to network...</i>")
     sent, failed = 0, 0
     for uid in list(active_users):
         try:
-            safe_send(uid, f"{CE('notice')} <b>NETWORK BROADCAST:</b>\n\n{text}")
+            safe_send(uid, f"📢 <b>NETWORK BROADCAST:</b>\n\n{text}")
             sent += 1
             time.sleep(0.04)
         except Exception: failed += 1
-    safe_edit(message.chat.id, status_m.message_id, f"{CE('done')} <b>Broadcast Finished! Delivered: <code>{sent}</code> | Failed: <code>{failed}</code>.</b>")
+    safe_edit(message.chat.id, status_m.message_id, f"✅ <b>Broadcast Finished! Delivered: <code>{sent}</code> | Failed: <code>{failed}</code>.</b>")
 
 # ─── USER BUTTON ACTIONS ───────────────────────────────────────────────────
 def _logic_upload_file(message):
     user_id = message.from_user.id
     limit = get_user_file_limit(user_id)
     if get_user_file_count(user_id) >= limit:
-        return safe_send(message.chat.id, f"{CE('close')} <b>Container Quota Full ({get_user_file_count(user_id)}/{limit})!</b> Upgrade your tier to deploy more bots.")
-    safe_send(message.chat.id, f"{CE('up')} <b>Send your .py, .js, or .zip project file document now.</b>\n<i>Our pre-flight engine will inspect and stage your container for admin approval.</i>")
+        return safe_send(message.chat.id, f"❌ <b>Container Quota Full ({get_user_file_count(user_id)}/{limit})!</b> Upgrade your tier to deploy more bots.")
+    safe_send(message.chat.id, "📤 <b>Send your .py, .js, or .zip project file document now.</b>\n<i>Our pre-flight engine will inspect and stage your container for admin approval.</i>")
 
 def _logic_speed(message):
     start = time.time()
@@ -1644,23 +1566,23 @@ def _logic_speed(message):
     lat = round((time.time() - start) * 1000, 2)
     cpu = psutil.cpu_percent()
     ram = psutil.virtual_memory().percent
-    safe_send(message.chat.id, f"{CE('speed')} <b>INFRASTRUCTURE BENCHMARK:</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{CE('done')} Latency: <code>{lat} ms</code>\n{CE('boom')} CPU: <code>{cpu}%</code>\n{CE('diamond')} RAM: <code>{ram}%</code>\n{CE('power')} Status: <code>100% Operational & Isolated</code>")
+    safe_send(message.chat.id, f"⚡ <b>INFRASTRUCTURE BENCHMARK:</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Latency: <code>{lat} ms</code>\n💥 CPU: <code>{cpu}%</code>\n💎 RAM: <code>{ram}%</code>\n⚡ Status: <code>100% Operational & Isolated</code>")
 
 def _prompt_manual_install(message):
-    msg = safe_send(message.chat.id, f"{CE('power')} <b>Manual Package Installation:</b>\nSend library name to install:\n• Python: <code>requests</code>, <code>telebot</code>\n• Node.js: <code>npm:express</code>")
+    msg = safe_send(message.chat.id, "⚡ <b>Manual Package Installation:</b>\nSend library name to install:\n• Python: <code>requests</code>, <code>telebot</code>\n• Node.js: <code>npm:express</code>")
     safe_next_step(msg, _execute_manual_install)
 
 def _execute_manual_install(message):
     pkg = message.text.strip()
-    status_m = safe_send(message.chat.id, f"{CE('loading')} <i>Installing {pkg}...</i>")
+    status_m = safe_send(message.chat.id, f"⏳ <i>Installing {pkg}...</i>")
     ok, text = install_system_package(pkg)
-    safe_edit(message.chat.id, status_m.message_id, f"{CE('done') if ok else CE('close')} {text}")
+    safe_edit(message.chat.id, status_m.message_id, f"{'✅' if ok else '❌'} {text}")
 
 # ─── UNIVERSAL REPLY KEYBOARD MESSAGE HANDLER ──────────────────────────────
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_universal_text(message):
     if bot_locked and message.from_user.id not in admin_ids:
-        return safe_send(message.chat.id, f"{CE('notice')} <b>System Locked for Maintenance.</b>")
+        return safe_send(message.chat.id, "🔔 <b>System Locked for Maintenance.</b>")
 
     handler = match_reply_button(message.text)
     if handler:
@@ -1669,7 +1591,7 @@ def handle_universal_text(message):
         if message.text == "/start":
             command_start(message)
         elif message.text == "/admin" and (message.from_user.id in admin_ids or message.from_user.id == OWNER_ID):
-            safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+            safe_send(message.chat.id, "👑 <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
 
 # ─── BACKGROUND CRON LOOP (AUTO EXPIRY CHECK) ──────────────────────────────
 def expiry_cron_loop():
@@ -1699,7 +1621,7 @@ def expiry_cron_loop():
                                 kill_process_tree(bot_scripts[skey])
                                 bot_scripts.pop(skey, None)
 
-                        safe_send(uid, f"{CE('notice')} <b>Subscription Plan {pname} Expired!</b>\nYour running bots have been stopped. Renew to restore full container slots.")
+                        safe_send(uid, f"🔔 <b>Subscription Plan {pname} Expired!</b>\nYour running bots have been stopped. Renew to restore full container slots.")
                 except Exception: pass
         except Exception: pass
         time.sleep(3600)
@@ -1718,7 +1640,7 @@ def run_polling():
         except telebot.apihelper.ApiTelegramException as e:
             print(f"[!] Telegram API error: {e}")
             if "Conflict" in str(e):
-                print("[!] 409 Conflict: Old deployment instance still dying. Retrying in 12 seconds...")
+                print("[!] 409 Conflict: Waiting 12 seconds for old instance to close...")
                 time.sleep(12)
             else:
                 time.sleep(5)
