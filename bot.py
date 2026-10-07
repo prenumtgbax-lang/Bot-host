@@ -7,8 +7,7 @@
 ║  • Support: @YourDomains                                                  ║
 ║  • Token: 8675366388:AAGmd_idkGdVv8aoyRmCE2VbOjvRrTm_7uM                 ║
 ║  • Channel: https://t.me/BABY_CODER_1                                     ║
-║  • Binance Auto-API Removed: 100% Manual Request & Approval System        ║
-║  • Working Buttons: Referral Program, Wallet & Deposit, Admin Console     ║
+║  • Admin Panel Command: /babypanel (Strict Admin ID Verification)         ║
 ║  • Gateways: Binance, bKash, Nagad Individual ON/OFF Toggles              ║
 ║  • Referral Engine: $0.50 Join Bonus + 10% Deposit Commission             ║
 ║  • Safe Next-Step Escaper: Zero Button Freeze or Lockups                  ║
@@ -203,6 +202,14 @@ pending_approvals = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+def is_admin(user_id: int) -> bool:
+    """Strictly checks if user ID belongs to OWNER or authorized ADMIN."""
+    try:
+        uid = int(user_id)
+        return uid == OWNER_ID or uid in admin_ids
+    except Exception:
+        return False
 
 # --- Safe Messaging Delivery Engine (Zero Crash) ---
 def safe_send(chat_id, text, reply_markup=None):
@@ -467,7 +474,7 @@ def remove_user_file_db(user_id, file_name):
 
 def get_user_file_limit(user_id):
     if user_id == OWNER_ID: return OWNER_LIMIT
-    if user_id in admin_ids: return ADMIN_LIMIT
+    if is_admin(user_id): return ADMIN_LIMIT
     u = get_user_data(user_id)
     if u and u[5]:
         try:
@@ -724,7 +731,7 @@ COMMAND_BUTTONS_ADMIN = [
 
 def create_main_reply_keyboard(user_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    layout = COMMAND_BUTTONS_ADMIN if (user_id in admin_ids or user_id == OWNER_ID) else COMMAND_BUTTONS_USER
+    layout = COMMAND_BUTTONS_ADMIN if is_admin(user_id) else COMMAND_BUTTONS_USER
     for row in layout:
         row_btns = [rkbtn(txt, style=st, icon=ic) for txt, st, ic in row]
         markup.add(*row_btns)
@@ -772,7 +779,11 @@ BUTTON_MAPPING = {
     "Help Desk": lambda m: safe_send(m.chat.id, f"{CE('support')} <b>Dedicated Consultant:</b> {YOUR_USERNAME}\n24/7 Priority Support Desk."),
     "Manual Install": lambda m: _prompt_manual_install(m),
     "Updates Channel": lambda m: safe_send(m.chat.id, f"{CE('link')} <b>Official Channel:</b> {UPDATE_CHANNEL}"),
-    "Admin Console": lambda m: safe_send(m.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+    "Admin Console": lambda m: (
+        safe_send(m.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+        if is_admin(m.from_user.id)
+        else safe_send(m.chat.id, f"{CE('close')} <b>Access Denied: Administrator Access Required.</b>")
+    )
 }
 
 def match_reply_button(text):
@@ -791,8 +802,11 @@ def safe_next_step(msg, callback):
             if text == "/start":
                 command_start(message)
                 return
-            elif text == "/baby" and (message.from_user.id in admin_ids or message.from_user.id == OWNER_ID):
-                safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+            elif text in ["/babypanel", "/admin", "/baby"]:
+                if is_admin(message.from_user.id):
+                    safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+                else:
+                    safe_send(message.chat.id, f"{CE('close')} <b>Access Denied: You are not authorized.</b>")
                 return
         handler = match_reply_button(text)
         if handler:
@@ -800,6 +814,44 @@ def safe_next_step(msg, callback):
             return
         callback(message)
     bot.register_next_step_handler(msg, wrapper)
+
+# ─── REFERRAL MENU ─────────────────────────────────────────────────────────
+def show_referral_menu(chat_id, user_id):
+    bot_info = bot.get_me()
+    bot_uname = bot_info.username
+    ref_link = f"https://t.me/{bot_uname}?start=ref_{user_id}"
+    user = get_user_data(user_id)
+    ref_earnings = user[9] if user and len(user) > 9 else 0.0
+
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,))
+        ref_count = c.fetchone()[0]
+        conn.close()
+
+    text = (
+        f"{CE('gift')} <b>AFFILIATE & REFERRAL ENGINE</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Share your referral link with developers and earn rewards:\n\n"
+        f"• <b>Join Bonus:</b> <code>${REFERRAL_JOIN_BONUS:.2f} USD</code> per verified referral\n"
+        f"• <b>Deposit Commission:</b> <code>{int(REFERRAL_DEPOSIT_COMMISSION*100)}%</code> automatic reward\n\n"
+        f"👥 <b>Total Invited:</b> <code>{ref_count} Members</code>\n"
+        f"💰 <b>Total Earnings:</b> <code>${ref_earnings:.2f} USD</code>\n\n"
+        f"🔗 <b>Your Exclusive Referral Link:</b>\n<code>{ref_link}</code>"
+    )
+    markup = types.InlineKeyboardMarkup()
+    share_url = f"https://t.me/share/url?url={ref_link}&text=Deploy%20your%20Telegram%20Bots%2024/7%20Free%20on%20Nebula%20Cloud%20Hosting!"
+    markup.add(cbtn("Share Referral Link", url=share_url, style="success", icon="telegram"))
+    safe_send(chat_id, text, reply_markup=markup)
+
+# ─── DEDICATED /babypanel COMMAND HANDLER ──────────────────────────────────
+@bot.message_handler(commands=["babypanel"])
+def command_babypanel(message):
+    if not is_admin(message.from_user.id):
+        safe_send(message.chat.id, f"{CE('close')} <b>Access Denied: You are not authorized to use this command.</b>")
+        return
+    safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
 
 # ─── REGISTRATION & WELCOME ────────────────────────────────────────────────
 @bot.message_handler(commands=["start"])
@@ -843,7 +895,7 @@ def command_start(message):
         return
 
     # Force Sub Verification
-    if not (user_id == OWNER_ID or user_id in admin_ids):
+    if not is_admin(user_id):
         for ch in FORCE_SUB_CHANNELS:
             try:
                 m = bot.get_chat_member(ch["chat_id"], user_id)
@@ -1232,6 +1284,16 @@ def handle_all_callbacks(call):
             safe_edit(chat_id, call.message.message_id, f"{CE('close')} <b>Operation Cancelled.</b>")
             return
 
+        # --- View Plans from Wallet ---
+        if data == "view_plans":
+            show_plans_menu(chat_id, user_id)
+            return
+
+        # --- Deposit Binance Callback ---
+        if data == "deposit_binance":
+            trigger_deposit_binance(chat_id, user_id)
+            return
+
         # --- Skip Requirements in Upload ---
         if data.startswith("skip_req_"):
             fname = data.replace("skip_req_", "")
@@ -1241,9 +1303,36 @@ def handle_all_callbacks(call):
             safe_edit(chat_id, call.message.message_id, f"{CE('done')} <b>File dispatched to Admin for launch approval!</b>")
             return
 
+        # --- Deposit Approvals by Admin ---
+        if data.startswith("appdep_") or data.startswith("rejdep_"):
+            if not is_admin(user_id): return
+            parts = data.split("_")
+            action, dep_id, target_uid = parts[0], int(parts[1]), int(parts[2])
+            with DB_LOCK:
+                conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+                c = conn.cursor()
+                c.execute("SELECT trx_id, status FROM deposits WHERE deposit_id = ?", (dep_id,))
+                dep_row = c.fetchone()
+                if not dep_row or dep_row[1] != "pending":
+                    conn.close()
+                    return safe_send(chat_id, f"{CE('close')} <b>Deposit request already resolved.</b>")
+
+                new_status = "approved" if action == "appdep" else "rejected"
+                c.execute("UPDATE deposits SET status = ? WHERE deposit_id = ?", (new_status, dep_id))
+                conn.commit()
+                conn.close()
+
+            if action == "appdep":
+                msg = safe_send(chat_id, f"{CE('money')} <b>Enter exact USD Amount to credit User <code>{target_uid}</code> for Deposit #{dep_id}:</b>")
+                safe_next_step(msg, lambda m: process_deposit_approval_amount(m, target_uid, dep_id))
+            else:
+                safe_send(chat_id, f"{CE('close')} <b>Deposit #{dep_id} Rejected.</b>")
+                safe_send(target_uid, f"{CE('close')} <b>Your Binance deposit proof was rejected by administration. Please reach out to support.</b>")
+            return
+
         # --- Admin Approval Queue ---
         if data.startswith("apprv_"):
-            if user_id != OWNER_ID and user_id not in admin_ids: return
+            if not is_admin(user_id): return
             fid = data.replace("apprv_", "")
             info = pending_approvals.pop(fid, None)
             if not info:
@@ -1261,7 +1350,7 @@ def handle_all_callbacks(call):
             return
 
         if data.startswith("rjct_"):
-            if user_id != OWNER_ID and user_id not in admin_ids: return
+            if not is_admin(user_id): return
             fid = data.replace("rjct_", "")
             info = pending_approvals.pop(fid, None)
             if info:
@@ -1271,44 +1360,44 @@ def handle_all_callbacks(call):
             return
 
         # --- Gateway Toggles (Individual ON/OFF) ---
-        if data == "adm_gateways_mgr" and (user_id in admin_ids or user_id == OWNER_ID):
+        if data == "adm_gateways_mgr" and is_admin(user_id):
             show_gateways_manager(chat_id, call.message.message_id)
             return
 
-        if data == "togg_gate_binance" and (user_id in admin_ids or user_id == OWNER_ID):
+        if data == "togg_gate_binance" and is_admin(user_id):
             cur = get_setting("binance_enabled", "1") == "1"
             set_setting("binance_enabled", "0" if cur else "1")
             show_gateways_manager(chat_id, call.message.message_id)
             return
 
-        if data == "togg_gate_bkash" and (user_id in admin_ids or user_id == OWNER_ID):
+        if data == "togg_gate_bkash" and is_admin(user_id):
             cur = get_setting("bkash_enabled", "1") == "1"
             set_setting("bkash_enabled", "0" if cur else "1")
             show_gateways_manager(chat_id, call.message.message_id)
             return
 
-        if data == "togg_gate_nagad" and (user_id in admin_ids or user_id == OWNER_ID):
+        if data == "togg_gate_nagad" and is_admin(user_id):
             cur = get_setting("nagad_enabled", "1") == "1"
             set_setting("nagad_enabled", "0" if cur else "1")
             show_gateways_manager(chat_id, call.message.message_id)
             return
 
-        if data == "change_manual_bkash" and user_id in admin_ids:
+        if data == "change_manual_bkash" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('sms')} <b>Send new bKash Number (e.g. 017XXXXXXXX):</b>")
             safe_next_step(msg, lambda m: process_payment_number_change(m, "bkash"))
             return
 
-        if data == "change_manual_nagad" and user_id in admin_ids:
+        if data == "change_manual_nagad" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('sms')} <b>Send new Nagad Number (e.g. 018XXXXXXXX):</b>")
             safe_next_step(msg, lambda m: process_payment_number_change(m, "nagad"))
             return
 
-        if data == "adm_set_pay_id" and user_id in admin_ids:
+        if data == "adm_set_pay_id" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('binance')} <b>Enter new Binance Pay ID:</b>")
             safe_next_step(msg, process_set_binance_pay_id)
             return
 
-        if data == "adm_set_usdt_addr" and user_id in admin_ids:
+        if data == "adm_set_usdt_addr" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('wallet')} <b>Enter new Binance USDT Deposit Address:</b>")
             safe_next_step(msg, process_set_binance_usdt_address)
             return
@@ -1350,7 +1439,7 @@ def handle_all_callbacks(call):
             return
 
         # --- Admin Approval for Manual Payments ---
-        if data == "pending_manual_payments" and user_id in admin_ids:
+        if data == "pending_manual_payments" and is_admin(user_id):
             rows = get_pending_manual_payments()
             if not rows:
                 safe_send(chat_id, f"{CE('done')} <b>No pending manual payments.</b>")
@@ -1374,7 +1463,7 @@ def handle_all_callbacks(call):
                 safe_send(chat_id, text, reply_markup=markup)
             return
 
-        if data.startswith("app_man_") and user_id in admin_ids:
+        if data.startswith("app_man_") and is_admin(user_id):
             req_id = int(data.replace("app_man_", ""))
             req = get_manual_payment_request(req_id)
             if not req or req[6] != "pending": return
@@ -1397,7 +1486,7 @@ def handle_all_callbacks(call):
             safe_send(uid, f"{CE('sparkle')} <b>Payment Verified!</b>\nYour plan <code>{name}</code> is active for {duration} days.")
             return
 
-        if data.startswith("rej_man_") and user_id in admin_ids:
+        if data.startswith("rej_man_") and is_admin(user_id):
             req_id = int(data.replace("rej_man_", ""))
             if set_manual_payment_status(req_id, "rejected"):
                 safe_send(chat_id, f"{CE('close')} <b>Payment #{req_id} rejected.</b>")
@@ -1450,7 +1539,7 @@ def handle_all_callbacks(call):
         if data.startswith("bact_"):
             parts = data.split("_", 3)
             act, owner_id, fname = parts[1], int(parts[2]), parts[3]
-            is_adm = (user_id in admin_ids or user_id == OWNER_ID)
+            is_adm = is_admin(user_id)
             if user_id != owner_id and not is_adm: return
 
             ftype, st = None, None
@@ -1512,8 +1601,8 @@ def handle_all_callbacks(call):
                 safe_edit(chat_id, call.message.message_id, f"{CE('delete')} <b>Bot container <code>{fname}</code> has been completely deleted and purged.</b>")
             return
 
-        # --- Admin Console Routes ---
-        if data == "adm_plans_mgr" and (user_id in admin_ids or user_id == OWNER_ID):
+        # --- Admin Console Routes (Protected by is_admin) ---
+        if data == "adm_plans_mgr" and is_admin(user_id):
             plans = get_all_plans()
             text = f"{CE('diamond')} <b>PLAN MANAGER CONSOLE</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             markup = types.InlineKeyboardMarkup(row_width=1)
@@ -1525,18 +1614,18 @@ def handle_all_callbacks(call):
             safe_edit(chat_id, call.message.message_id, text, reply_markup=markup)
             return
 
-        if data.startswith("delplan_"):
+        if data.startswith("delplan_") and is_admin(user_id):
             pid = data.replace("delplan_", "")
             delete_plan_db(pid)
             safe_send(chat_id, f"{CE('done')} <b>Plan <code>{pid}</code> removed from database.</b>")
             return
 
-        if data == "add_plan_init":
+        if data == "add_plan_init" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('sms')} <b>Send new plan in format:</b>\n<code>plan_id | Plan Name | Max Bots | Price | Days | Description</code>\n\n*Example:*\n<code>mega | Mega Host | 15 | 40 | 30 | 15 Bot Slots with Dedicated Resources</code>")
             safe_next_step(msg, process_add_plan_step)
             return
 
-        if data == "adm_all_bots":
+        if data == "adm_all_bots" and is_admin(user_id):
             markup = types.InlineKeyboardMarkup(row_width=1)
             count = 0
             for uid, files in user_files.items():
@@ -1549,7 +1638,7 @@ def handle_all_callbacks(call):
             safe_send(chat_id, f"{CE('trader')} <b>GLOBAL INSTANCES MONITOR ({count} Bots):</b>", reply_markup=markup)
             return
 
-        if data == "adm_pending_files":
+        if data == "adm_pending_files" and is_admin(user_id):
             pending_items = [(uid, fn) for uid, files in user_files.items() for fn, ft, st in files if st == "pending"]
             if not pending_items:
                 safe_send(chat_id, f"{CE('done')} <b>No files awaiting approval.</b>")
@@ -1565,12 +1654,12 @@ def handle_all_callbacks(call):
                 safe_send(chat_id, f"{CE('notice')} <b>Pending File:</b> <code>{p_fn}</code>\n👤 <b>Owner:</b> <code>{p_uid}</code>", reply_markup=markup)
             return
 
-        if data == "adm_scan_user":
+        if data == "adm_scan_user" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('search')} <b>Enter User ID to inspect profile & adjust balance:</b>")
             safe_next_step(msg, process_scan_user_input)
             return
 
-        if data.startswith("adm_bal_"):
+        if data.startswith("adm_bal_") and is_admin(user_id):
             parts = data.split("_")
             mode, target_uid = parts[2], int(parts[3])
             sign = "+" if mode == "add" else "-"
@@ -1578,7 +1667,7 @@ def handle_all_callbacks(call):
             safe_next_step(msg, lambda m: process_balance_adjustment_step(m, target_uid, mode))
             return
 
-        if data.startswith("adm_ban_toggle_"):
+        if data.startswith("adm_ban_toggle_") and is_admin(user_id):
             target_uid = int(data.split("_")[3])
             user = get_user_data(target_uid)
             if not user: return
@@ -1593,22 +1682,22 @@ def handle_all_callbacks(call):
             safe_send(chat_id, f"{CE('done')} <b>User <code>{target_uid}</code> is now {action_text}.</b>")
             return
 
-        if data == "adm_broadcast":
+        if data == "adm_broadcast" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('notice')} <b>Send announcement text to broadcast to ALL network users:</b>\n<i>Send /cancel to abort.</i>")
             safe_next_step(msg, process_broadcast_transmission)
             return
 
-        if data == "adm_bots_sms":
+        if data == "adm_bots_sms" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('sms')} <b>BROADCAST TO HOSTED BOT OWNERS:</b>\nSend message text:\n<i>Send /cancel to abort.</i>")
             safe_next_step(msg, process_all_bot_owners_sms)
             return
 
-        if data == "adm_change_db":
+        if data == "adm_change_db" and is_admin(user_id):
             msg = safe_send(chat_id, f"{CE('world')} <b>DATABASE SWITCHER:</b>\nEnter database file name (e.g. <code>custom_data.db</code>):")
             safe_next_step(msg, process_switch_database)
             return
 
-        if data == "adm_reboot_all":
+        if data == "adm_reboot_all" and is_admin(user_id):
             count = 0
             for uid, files in user_files.items():
                 for fn, ft, st in files:
@@ -1619,7 +1708,7 @@ def handle_all_callbacks(call):
             safe_send(chat_id, f"{CE('done')} <b>Rebooted {count} approved worker instances.</b>")
             return
 
-        if data == "adm_stop_all":
+        if data == "adm_stop_all" and is_admin(user_id):
             stopped = len(bot_scripts)
             for skey in list(bot_scripts.keys()):
                 kill_process_tree(bot_scripts[skey])
@@ -1627,12 +1716,14 @@ def handle_all_callbacks(call):
             safe_send(chat_id, f"{CE('stop')} <b>Terminated {stopped} active running processes.</b>")
             return
 
-        if data == "adm_lock_system":
+        if data == "adm_lock_system" and is_admin(user_id):
             bot_locked = not bot_locked
             safe_send(chat_id, f"{CE('power')} <b>Emergency Lockdown State:</b> <code>{bot_locked}</code>")
             return
 
         if data == "admin_console":
+            if not is_admin(user_id):
+                return safe_send(chat_id, f"{CE('close')} <b>Access Denied: You are not authorized.</b>")
             safe_send(chat_id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
             return
 
@@ -1645,6 +1736,38 @@ def handle_all_callbacks(call):
         logger.error(f"Callback exception: {e}")
 
 # ─── ADMIN STEP HANDLERS ───────────────────────────────────────────────────
+def process_deposit_approval_amount(message, target_uid, dep_id):
+    try:
+        amount = float(message.text.strip())
+        new_bal = update_user_balance(target_uid, amount)
+        with DB_LOCK:
+            conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("UPDATE deposits SET amount = ? WHERE deposit_id = ?", (amount, dep_id))
+            c.execute("SELECT referred_by FROM users WHERE user_id = ?", (target_uid,))
+            ref_row = c.fetchone()
+            referrer_id = ref_row[0] if ref_row else None
+            conn.commit()
+            conn.close()
+
+        safe_send(message.chat.id, f"{CE('done')} <b>Credited <code>${amount:.2f} USD</code> to User <code>{target_uid}</code>. New Balance: <code>${new_bal:.2f} USD</code>.</b>")
+        safe_send(target_uid, f"{CE('sparkle')} <b>Deposit Approved!</b>\nYour wallet has been credited with <code>${amount:.2f} USD</code>. Current Balance: <code>${new_bal:.2f} USD</code>.")
+
+        # Referral commission on deposit
+        if referrer_id:
+            comm = round(amount * REFERRAL_DEPOSIT_COMMISSION, 2)
+            if comm > 0:
+                update_user_balance(referrer_id, comm)
+                with DB_LOCK:
+                    conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("UPDATE users SET referral_earnings = referral_earnings + ? WHERE user_id = ?", (comm, referrer_id))
+                    conn.commit()
+                    conn.close()
+                safe_send(referrer_id, f"{CE('gift')} <b>Referral Deposit Commission Earned!</b>\nYour invited friend topped up their wallet. You earned <code>${comm:.2f} USD</code> ({int(REFERRAL_DEPOSIT_COMMISSION*100)}%) commission!")
+    except Exception as e:
+        safe_send(message.chat.id, f"{CE('close')} <b>Invalid Amount:</b> {e}")
+
 def process_payment_number_change(message, method):
     num = message.text.strip().replace(" ", "")
     set_setting(f"{method}_number", num)
@@ -1835,17 +1958,27 @@ def _execute_manual_install(message):
 # ─── UNIVERSAL REPLY KEYBOARD MESSAGE HANDLER ──────────────────────────────
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_universal_text(message):
-    if bot_locked and message.from_user.id not in admin_ids:
+    user_id = message.from_user.id
+    if bot_locked and not is_admin(user_id):
         return safe_send(message.chat.id, f"{CE('notice')} <b>System Locked for Maintenance.</b>")
 
-    handler = match_reply_button(message.text)
+    text = message.text or ""
+
+    if text.startswith("/"):
+        cmd = text.split()[0].lower()
+        if cmd == "/start":
+            command_start(message)
+            return
+        elif cmd in ["/babypanel", "/admin", "/baby"]:
+            if is_admin(user_id):
+                safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
+            else:
+                safe_send(message.chat.id, f"{CE('close')} <b>Access Denied: You are not authorized to use this command.</b>")
+            return
+
+    handler = match_reply_button(text)
     if handler:
         handler(message)
-    elif message.text.startswith("/"):
-        if message.text == "/start":
-            command_start(message)
-        elif message.text == "/admin" and (message.from_user.id in admin_ids or message.from_user.id == OWNER_ID):
-            safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
 
 # ─── BACKGROUND CRON LOOP (AUTO EXPIRY CHECK) ──────────────────────────────
 def expiry_cron_loop():
@@ -1906,6 +2039,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f" NEBULA CLOUD HOSTING - ZERO-CRASH ACTIVE ")
     print(f" Super Admin ID: {OWNER_ID}")
+    print(f" Admin Console Command: /babypanel")
     print(f" Support: {YOUR_USERNAME}")
     print(f" Payment Gateways: Binance, bKash & Nagad (Toggleable)")
     print("=" * 60)
