@@ -791,7 +791,7 @@ def safe_next_step(msg, callback):
             if text == "/start":
                 command_start(message)
                 return
-            elif text == "/admin" and (message.from_user.id in admin_ids or message.from_user.id == OWNER_ID):
+            elif text == "/baby" and (message.from_user.id in admin_ids or message.from_user.id == OWNER_ID):
                 safe_send(message.chat.id, f"{CE('crown')} <b>SUPER ADMINISTRATOR CONSOLE:</b>", reply_markup=create_admin_panel_inline())
                 return
         handler = match_reply_button(text)
