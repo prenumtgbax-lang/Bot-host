@@ -69,7 +69,7 @@ def keep_alive():
     print("[+] Background Keep-Alive Server Online.")
 
 # --- Configuration & Credentials ---
-TOKEN = "8675366388:AAGmd_idkGdVv8aoyRmCE2VbOjvRrTm_7uM"
+TOKEN = "8675366388:AAG4rGzIi670KgR7EzeFcZhXmJbljjYTExU"
 OWNER_ID = 2014144404
 ADMIN_ID = 2014144404
 YOUR_USERNAME = "@YourDomains"
